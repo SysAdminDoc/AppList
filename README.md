@@ -1,8 +1,6 @@
 # AppList
 
-**Professional Windows Application Inventory Scanner**
-
-A premium-grade tool for scanning, cataloging, and exporting all installed applications on your Windows system. Perfect for system migrations, documentation, and reinstallation planning.
+A tool for scanning, cataloging, and exporting all installed applications on your Windows system. Perfect for system migrations, documentation, and reinstallation planning.
 
 ---
 
