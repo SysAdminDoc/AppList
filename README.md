@@ -4,6 +4,9 @@ A tool for scanning, cataloging, and exporting all installed applications on you
 
 ---
 
+
+![Screenshot](screenshot.png)
+
 ## Features
 
 ### Comprehensive Scanning
