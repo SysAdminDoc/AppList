@@ -2,6 +2,11 @@
 
 Windows tool that scans registry + WOW6432Node + HKCU + UWP + Program Files, exports installed app inventory to TXT/CSV/MD/JSON. PyQt-style dark GUI with sortable columns, filtering, and context actions.
 
+## Completed (v1.3.0)
+- [x] Upgrade-available column — `winget upgrade` cross-ref with visual badge
+- [x] Ghost entry detection — flag apps missing their install location
+- [x] Context menu: Uninstall — invoke with confirmation
+
 ## Completed (v1.2.0)
 - [x] Chocolatey scanner — scans `%PROGRAMDATA%\chocolatey\lib\`, parses `.nuspec`
 - [x] Scoop scanner — scans `~\scoop\apps\`, reads `current\manifest.json`

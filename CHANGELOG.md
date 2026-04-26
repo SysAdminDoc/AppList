@@ -2,6 +2,14 @@
 
 All notable changes to AppList will be documented in this file.
 
+## [v1.3.0] - 2026-05-03
+
+- Added: Upgrade-available column — shows "Update Available (X.Y.Z)" when `winget upgrade` detects newer versions
+- Added: Ghost entry detection — flags applications with registry entries but missing install locations with "⚠ Missing" badge
+- Added: "Uninstall" context menu item — invokes the app's uninstall command with confirmation dialog
+- Changed: CSV export now includes "Update Available" column
+- Changed: Treeview column for upgrade status with visual indicator badges
+
 ## [v1.2.0] - 2026-05-01
 
 - Added: Chocolatey scanner (Phase 4/7) — scans `%PROGRAMDATA%\chocolatey\lib\` and parses `.nuspec` for name/version/publisher

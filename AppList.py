@@ -94,7 +94,7 @@ import ctypes
 # ══════════════════════════════════════════════════════════════════════════════
 
 APP_NAME = "AppList"
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 APP_SUBTITLE = "Windows Application Inventory Scanner"
 
 # Premium Dark Theme Colors
@@ -146,6 +146,8 @@ class Application:
     architecture: str = ""
     app_type: str = "Desktop"
     winget_id: str = ""
+    upgrade_available: str = ""  # "Update Available" if newer version exists in winget, else ""
+    ghost: bool = False  # True if install_location doesn't exist on disk
 
     def to_dict(self) -> Dict[str, str]:
         return asdict(self)
@@ -164,6 +166,7 @@ class Application:
             self.architecture,
             self.app_type,
             self.winget_id,
+            self.upgrade_available,
         ]
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -519,7 +522,7 @@ class ApplicationScanner:
         if self._cancelled:
             return self.applications
         
-        # Cross-reference with winget for package IDs
+        # Cross-reference with winget for package IDs and upgrade status
         self._update_status("Phase 7/7: Cross-referencing with winget...")
         winget_map = self._build_winget_map()
         if winget_map:
@@ -527,6 +530,18 @@ class ApplicationScanner:
                 norm = self._normalize_name(app.name)
                 if norm in winget_map:
                     app.winget_id = winget_map[norm]
+        
+        # Check for upgradeable versions
+        upgrade_map = self._build_upgrade_map()
+        if upgrade_map:
+            for app in self.applications:
+                if app.winget_id and app.winget_id in upgrade_map:
+                    app.upgrade_available = f"Update Available ({upgrade_map[app.winget_id]})"
+        
+        # Ghost entry detection: flag apps whose install location doesn't exist
+        for app in self.applications:
+            if app.install_location and not os.path.exists(app.install_location):
+                app.ghost = True
         
         # Sort by name
         self.applications.sort(key=lambda x: x.name.lower())
@@ -788,6 +803,32 @@ class ApplicationScanner:
                 continue
 
         return packages
+
+    def _build_upgrade_map(self) -> Dict[str, str]:
+        """Build a winget_id → new_version map via winget upgrade."""
+        upgrade_map: Dict[str, str] = {}
+        self._update_progress(75)
+        try:
+            result = subprocess.run(
+                ["winget", "upgrade", "--accept-source-agreements",
+                 "--disable-interactivity", "--output", "json"],
+                capture_output=True, text=True, timeout=60,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                try:
+                    data = json.loads(result.stdout)
+                    upgradeable = data.get("Upgradeable", [])
+                    for pkg in upgradeable:
+                        pkg_id = str(pkg.get("Id", "")).strip()
+                        new_ver = str(pkg.get("AvailableVersion", "")).strip()
+                        if pkg_id and new_ver:
+                            upgrade_map[pkg_id] = new_ver
+                except json.JSONDecodeError:
+                    pass
+        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+            pass
+        return upgrade_map
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CUSTOM WIDGETS
@@ -1210,7 +1251,7 @@ class AppList(ctk.CTk):
         columns = (
             "name", "publisher", "version", "install_date",
             "install_location", "registry_key", "type",
-            "size", "architecture", "winget_id",
+            "size", "architecture", "winget_id", "upgrade_available",
         )
         
         # Create treeview with scrollbar
@@ -1245,6 +1286,7 @@ class AppList(ctk.CTk):
             "size": ("Size", 90),
             "architecture": ("Arch", 80),
             "winget_id": ("Winget ID", 200),
+            "upgrade_available": ("Update Available", 200),
         }
         
         for col, (heading, width) in column_config.items():
@@ -1266,6 +1308,8 @@ class AppList(ctk.CTk):
         self.context_menu.add_command(label="Open Install Location", command=self._open_location)
         self.context_menu.add_command(label="Open Registry Key in Regedit", command=self._open_registry_key)
         self.context_menu.add_command(label="Lookup on Winget", command=self._lookup_winget)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="Uninstall", command=self._uninstall_app)
         
         self.tree.bind("<Button-3>", self._show_context_menu)
         self.tree.bind("<Double-1>", self._on_double_click)
@@ -1422,6 +1466,13 @@ class AppList(ctk.CTk):
         
         # Add filtered apps
         for app in self.filtered_apps:
+            # Visual indicator for update available or ghost entry
+            status = ""
+            if app.ghost:
+                status = "⚠ Missing"
+            elif app.upgrade_available:
+                status = app.upgrade_available
+            
             self.tree.insert("", "end", values=(
                 app.name,
                 app.publisher,
@@ -1433,6 +1484,7 @@ class AppList(ctk.CTk):
                 app.estimated_size,
                 app.architecture,
                 app.winget_id,
+                status,
             ))
         
         # Update count
@@ -1506,6 +1558,7 @@ class AppList(ctk.CTk):
             "size": "estimated_size",
             "architecture": "architecture",
             "winget_id": "winget_id",
+            "upgrade_available": "upgrade_available",
         }
         
         attr = attr_map.get(self.sort_column, "name")
@@ -1609,6 +1662,7 @@ class AppList(ctk.CTk):
                     "Architecture",
                     "Type",
                     "Winget ID",
+                    "Update Available",
                 ])
                 
                 # Data rows
@@ -1787,6 +1841,36 @@ class AppList(ctk.CTk):
             query = app.name.replace(" ", "+")
             url = f"https://winget.run/?q={query}"
         webbrowser.open(url)
+
+    def _uninstall_app(self):
+        """Uninstall the selected application using its uninstall string."""
+        app = self._get_selected_app()
+        if not app:
+            return
+        
+        # Prefer uninstall_command if available
+        uninstall_str = app.uninstall_command or app.uninstall_registry_key
+        if not uninstall_str:
+            messagebox.showwarning("No Uninstall", f"No uninstall information available for {app.name}.")
+            return
+        
+        # Confirm before uninstalling
+        response = messagebox.askyesno(
+            "Confirm Uninstall",
+            f"Are you sure you want to uninstall {app.name}?\n\nCommand:\n{uninstall_str}",
+        )
+        if not response:
+            return
+        
+        try:
+            subprocess.run(
+                uninstall_str,
+                shell=True,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            messagebox.showinfo("Uninstall", f"Uninstall command for {app.name} executed.\nPlease complete the uninstall wizard.")
+        except Exception as e:
+            messagebox.showerror("Uninstall Error", f"Failed to execute uninstall:\n{e}")
 
     def _show_context_menu(self, event):
         """Show context menu on right-click."""
