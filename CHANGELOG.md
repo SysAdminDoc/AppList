@@ -2,6 +2,17 @@
 
 All notable changes to AppList will be documented in this file.
 
+## [v1.2.0] - 2026-05-01
+
+- Added: Chocolatey scanner (Phase 4/7) — scans `%PROGRAMDATA%\chocolatey\lib\` and parses `.nuspec` for name/version/publisher
+- Added: Scoop scanner (Phase 5/7) — scans `~\scoop\apps\` and reads `current\manifest.json` for version
+- Added: pip scanner (Phase 6/7) — runs `python -m pip list --format=json` and adds Python packages
+- Added: Export Winget — exports matched apps as official `winget import`-compatible JSON (`winget-packages.schema.2.0.json`)
+- Added: "Lookup on Winget" context menu — opens winstall.app (if winget ID known) or winget.run search
+- Added: Filter dropdown options for Chocolatey, Scoop, and Python (pip)
+- Changed: Stats panel "Unregistered" card now counts all non-Desktop/non-Store apps (Unregistered + Chocolatey + Scoop + pip); relabeled "Unregistered / Other"
+- Changed: Scan pipeline updated to Phase 1/7–7/7 messaging with rescaled progress percentages
+
 ## [v1.1.0] - 2026-04-26
 
 - Added: winget cross-reference (Phase 4 scan) — populates Winget ID on matched registry apps
