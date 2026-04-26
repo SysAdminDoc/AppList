@@ -94,7 +94,7 @@ import ctypes
 # ══════════════════════════════════════════════════════════════════════════════
 
 APP_NAME = "AppList"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 APP_SUBTITLE = "Windows Application Inventory Scanner"
 
 # Premium Dark Theme Colors
@@ -236,7 +236,7 @@ class ApplicationScanner:
                 break
                 
             self._update_status(f"Scanning registry: {source_name}...")
-            self._update_progress((idx / total_paths) * 30)
+            self._update_progress((idx / total_paths) * 20)
             
             try:
                 arch = "64-bit" if "WOW6432Node" not in path else "32-bit"
@@ -316,7 +316,7 @@ class ApplicationScanner:
         """Scan Microsoft Store / UWP applications."""
         apps = []
         self._update_status("Scanning Microsoft Store apps...")
-        self._update_progress(35)
+        self._update_progress(22)
         
         try:
             # Use PowerShell to get AppX packages
@@ -343,7 +343,7 @@ class ApplicationScanner:
                     if self._cancelled:
                         break
                     
-                    self._update_progress(35 + (idx / total) * 20)
+                    self._update_progress(22 + (idx / total) * 12)
                     
                     name = pkg.get("Name", "")
                     if not name:
@@ -391,7 +391,7 @@ class ApplicationScanner:
         """Scan Program Files directories for additional applications."""
         apps = []
         self._update_status("Scanning Program Files directories...")
-        self._update_progress(60)
+        self._update_progress(36)
         
         program_dirs = [
             os.environ.get("ProgramFiles", r"C:\Program Files"),
@@ -413,7 +413,7 @@ class ApplicationScanner:
                     if self._cancelled:
                         break
                     
-                    self._update_progress(60 + ((dir_idx * len(subdirs) + sub_idx) / (total_dirs * max(len(subdirs), 1))) * 25)
+                    self._update_progress(36 + ((dir_idx * len(subdirs) + sub_idx) / (total_dirs * max(len(subdirs), 1))) * 14)
                     
                     full_path = os.path.join(program_dir, subdir)
                     if not os.path.isdir(full_path):
@@ -472,7 +472,7 @@ class ApplicationScanner:
         self.seen_apps = set()
         
         # Scan registry (primary source)
-        self._update_status("Phase 1/4: Scanning Windows Registry...")
+        self._update_status("Phase 1/7: Scanning Windows Registry...")
         registry_apps = self.scan_registry()
         self.applications.extend(registry_apps)
         
@@ -480,7 +480,7 @@ class ApplicationScanner:
             return self.applications
         
         # Scan Store apps
-        self._update_status("Phase 2/4: Scanning Microsoft Store apps...")
+        self._update_status("Phase 2/7: Scanning Microsoft Store apps...")
         store_apps = self.scan_store_apps()
         self.applications.extend(store_apps)
         
@@ -488,15 +488,39 @@ class ApplicationScanner:
             return self.applications
         
         # Scan Program Files
-        self._update_status("Phase 3/4: Scanning Program Files...")
+        self._update_status("Phase 3/7: Scanning Program Files...")
         folder_apps = self.scan_program_files()
         self.applications.extend(folder_apps)
         
         if self._cancelled:
             return self.applications
         
+        # Scan Chocolatey packages
+        self._update_status("Phase 4/7: Scanning Chocolatey packages...")
+        choco_apps = self.scan_chocolatey()
+        self.applications.extend(choco_apps)
+        
+        if self._cancelled:
+            return self.applications
+        
+        # Scan Scoop packages
+        self._update_status("Phase 5/7: Scanning Scoop packages...")
+        scoop_apps = self.scan_scoop()
+        self.applications.extend(scoop_apps)
+        
+        if self._cancelled:
+            return self.applications
+        
+        # Scan pip packages
+        self._update_status("Phase 6/7: Scanning Python (pip) packages...")
+        pip_apps = self.scan_pip()
+        self.applications.extend(pip_apps)
+        
+        if self._cancelled:
+            return self.applications
+        
         # Cross-reference with winget for package IDs
-        self._update_status("Phase 4/4: Cross-referencing with winget...")
+        self._update_status("Phase 7/7: Cross-referencing with winget...")
         winget_map = self._build_winget_map()
         if winget_map:
             for app in self.applications:
@@ -512,10 +536,178 @@ class ApplicationScanner:
         
         return self.applications
 
+    def scan_chocolatey(self) -> List[Application]:
+        """Scan Chocolatey installed packages from %PROGRAMDATA%\\chocolatey\\lib\\."""
+        apps: List[Application] = []
+        choco_lib = os.path.join(
+            os.environ.get("ProgramData", r"C:\ProgramData"), "chocolatey", "lib"
+        )
+        if not os.path.isdir(choco_lib):
+            return apps
+
+        self._update_status("Scanning Chocolatey packages...")
+        self._update_progress(52)
+
+        try:
+            pkg_dirs = [d for d in os.listdir(choco_lib) if os.path.isdir(os.path.join(choco_lib, d))]
+        except OSError:
+            return apps
+
+        for pkg_dir in pkg_dirs:
+            if self._cancelled:
+                break
+            norm = self._normalize_name(pkg_dir)
+            if norm in self.seen_apps:
+                continue
+
+            pkg_path = os.path.join(choco_lib, pkg_dir)
+            name = pkg_dir
+            version = ""
+            publisher = ""
+
+            # Parse .nuspec for metadata
+            nuspec_files = [f for f in os.listdir(pkg_path) if f.endswith(".nuspec")]
+            if nuspec_files:
+                nuspec_path = os.path.join(pkg_path, nuspec_files[0])
+                try:
+                    import xml.etree.ElementTree as ET
+                    tree = ET.parse(nuspec_path)
+                    root = tree.getroot()
+                    ns = root.tag.split("}")[0].lstrip("{") if "}" in root.tag else ""
+                    prefix = f"{{{ns}}}" if ns else ""
+                    meta = root.find(f"{prefix}metadata")
+                    if meta is not None:
+                        id_el = meta.find(f"{prefix}id")
+                        ver_el = meta.find(f"{prefix}version")
+                        auth_el = meta.find(f"{prefix}authors")
+                        if id_el is not None and id_el.text:
+                            name = id_el.text.strip()
+                        if ver_el is not None and ver_el.text:
+                            version = ver_el.text.strip()
+                        if auth_el is not None and auth_el.text:
+                            publisher = auth_el.text.strip()
+                except Exception:
+                    pass
+
+            self.seen_apps.add(norm)
+            apps.append(Application(
+                name=name,
+                version=version,
+                publisher=publisher,
+                install_location=pkg_path,
+                app_type="Chocolatey",
+            ))
+
+        return apps
+
+    def scan_scoop(self) -> List[Application]:
+        """Scan Scoop installed apps from ~\\scoop\\apps\\."""
+        apps: List[Application] = []
+        scoop_apps = os.path.join(os.path.expanduser("~"), "scoop", "apps")
+
+        # Also check SCOOP env var
+        scoop_env = os.environ.get("SCOOP", "")
+        if scoop_env:
+            scoop_apps = os.path.join(scoop_env, "apps")
+
+        if not os.path.isdir(scoop_apps):
+            return apps
+
+        self._update_status("Scanning Scoop packages...")
+        self._update_progress(58)
+
+        try:
+            app_dirs = [d for d in os.listdir(scoop_apps)
+                        if os.path.isdir(os.path.join(scoop_apps, d)) and d != "scoop"]
+        except OSError:
+            return apps
+
+        for app_dir in app_dirs:
+            if self._cancelled:
+                break
+            norm = self._normalize_name(app_dir)
+            if norm in self.seen_apps:
+                continue
+
+            app_path = os.path.join(scoop_apps, app_dir)
+            current_path = os.path.join(app_path, "current")
+            name = app_dir
+            version = ""
+            publisher = ""
+
+            # Parse current\manifest.json
+            manifest_path = os.path.join(current_path, "manifest.json")
+            if os.path.isfile(manifest_path):
+                try:
+                    with open(manifest_path, encoding="utf-8") as f:
+                        manifest = json.load(f)
+                    version = str(manifest.get("version", "")).strip()
+                    publisher = str(manifest.get("homepage", "")).strip()
+                except Exception:
+                    pass
+
+            # Fallback: version folder name
+            if not version:
+                try:
+                    versions = [d for d in os.listdir(app_path)
+                                if os.path.isdir(os.path.join(app_path, d)) and d != "current"]
+                    if versions:
+                        version = sorted(versions)[-1]
+                except OSError:
+                    pass
+
+            self.seen_apps.add(norm)
+            apps.append(Application(
+                name=name,
+                version=version,
+                publisher=publisher,
+                install_location=current_path if os.path.isdir(current_path) else app_path,
+                app_type="Scoop",
+            ))
+
+        return apps
+
+    def scan_pip(self) -> List[Application]:
+        """Scan pip-installed Python packages."""
+        apps: List[Application] = []
+        self._update_status("Scanning Python (pip) packages...")
+        self._update_progress(64)
+
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "list", "--format=json"],
+                capture_output=True, text=True, timeout=30,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            if result.returncode != 0:
+                return apps
+
+            packages = json.loads(result.stdout)
+            for pkg in packages:
+                if self._cancelled:
+                    break
+                pkg_name = str(pkg.get("name", "")).strip()
+                if not pkg_name:
+                    continue
+                norm = self._normalize_name(pkg_name)
+                if norm in self.seen_apps:
+                    continue
+                self.seen_apps.add(norm)
+                apps.append(Application(
+                    name=pkg_name,
+                    version=str(pkg.get("version", "")).strip(),
+                    publisher="",
+                    app_type="Python Package",
+                ))
+        except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError, Exception):
+            pass
+
+        return apps
+
     def _build_winget_map(self) -> Dict[str, str]:
         """Build a normalized-name → winget-package-ID map via winget list."""
         winget_map: Dict[str, str] = {}
-        self._update_progress(88)
+        self._update_progress(73)
         try:
             # Try JSON output (winget 1.6+)
             result = subprocess.run(
@@ -649,6 +841,9 @@ class StatsCard(ctk.CTkFrame):
     
     def set_value(self, value: str):
         self.value_label.configure(text=value)
+
+    def set_title(self, title: str):
+        self.title_label.configure(text=title)
 
 class PremiumButton(ctk.CTkButton):
     """Premium styled button with hover effects."""
@@ -875,7 +1070,7 @@ class AppList(ctk.CTk):
         self.stats_store = StatsCard(stats_frame, "Store Apps", "—", "◈")
         self.stats_store.pack(side="left", fill="both", expand=True, padx=(0, 12))
         
-        self.stats_unregistered = StatsCard(stats_frame, "Unregistered", "—", "◇")
+        self.stats_unregistered = StatsCard(stats_frame, "Unregistered / Other", "—", "◇")
         self.stats_unregistered.pack(side="left", fill="both", expand=True)
     
     def _create_toolbar(self):
@@ -931,7 +1126,15 @@ class AppList(ctk.CTk):
         self.filter_var = tk.StringVar(value="All Applications")
         self.filter_dropdown = ctk.CTkComboBox(
             filter_frame,
-            values=["All Applications", "Desktop Apps", "Store Apps", "Unregistered"],
+            values=[
+                "All Applications",
+                "Desktop Apps",
+                "Store Apps",
+                "Unregistered",
+                "Chocolatey",
+                "Scoop",
+                "Python (pip)",
+            ],
             variable=self.filter_var,
             width=180,
             height=40,
@@ -982,7 +1185,15 @@ class AppList(ctk.CTk):
             width=120,
             command=self._export_json,
         )
-        self.export_json_btn.pack(side="left")
+        self.export_json_btn.pack(side="left", padx=(0, 8))
+
+        self.export_winget_btn = SecondaryButton(
+            export_frame,
+            text="Export Winget",
+            width=130,
+            command=self._export_winget,
+        )
+        self.export_winget_btn.pack(side="left")
     
     def _create_main_content(self):
         """Create the main content area with treeview."""
@@ -1054,6 +1265,7 @@ class AppList(ctk.CTk):
         self.context_menu.add_separator()
         self.context_menu.add_command(label="Open Install Location", command=self._open_location)
         self.context_menu.add_command(label="Open Registry Key in Regedit", command=self._open_registry_key)
+        self.context_menu.add_command(label="Lookup on Winget", command=self._lookup_winget)
         
         self.tree.bind("<Button-3>", self._show_context_menu)
         self.tree.bind("<Double-1>", self._on_double_click)
@@ -1114,6 +1326,7 @@ class AppList(ctk.CTk):
         self.export_csv_btn.configure(state="disabled")
         self.export_md_btn.configure(state="disabled")
         self.export_json_btn.configure(state="disabled")
+        self.export_winget_btn.configure(state="disabled")
         
         # Clear existing data
         for item in self.tree.get_children():
@@ -1161,12 +1374,12 @@ class AppList(ctk.CTk):
         # Update stats
         desktop_count = sum(1 for a in apps if a.app_type == "Desktop")
         store_count = sum(1 for a in apps if a.app_type == "Store App")
-        unreg_count = sum(1 for a in apps if a.app_type == "Desktop (Unregistered)")
+        other_count = sum(1 for a in apps if a.app_type not in ("Desktop", "Store App"))
         
         self.stats_total.set_value(str(len(apps)))
         self.stats_desktop.set_value(str(desktop_count))
         self.stats_store.set_value(str(store_count))
-        self.stats_unregistered.set_value(str(unreg_count))
+        self.stats_unregistered.set_value(str(other_count))
         
         # Populate treeview
         self._populate_treeview()
@@ -1178,6 +1391,7 @@ class AppList(ctk.CTk):
         self.export_csv_btn.configure(state="normal")
         self.export_md_btn.configure(state="normal")
         self.export_json_btn.configure(state="normal")
+        self.export_winget_btn.configure(state="normal")
         
         self._update_status(f"Scan complete. Found {len(apps)} applications.")
     
@@ -1244,6 +1458,12 @@ class AppList(ctk.CTk):
             elif filter_type == "Store Apps" and app.app_type != "Store App":
                 continue
             elif filter_type == "Unregistered" and app.app_type != "Desktop (Unregistered)":
+                continue
+            elif filter_type == "Chocolatey" and app.app_type != "Chocolatey":
+                continue
+            elif filter_type == "Scoop" and app.app_type != "Scoop":
+                continue
+            elif filter_type == "Python (pip)" and app.app_type != "Python Package":
                 continue
             
             self.filtered_apps.append(app)
@@ -1492,7 +1712,82 @@ class AppList(ctk.CTk):
     # ══════════════════════════════════════════════════════════════════════════
     # CONTEXT MENU ACTIONS
     # ══════════════════════════════════════════════════════════════════════════
-    
+
+    def _export_winget(self):
+        """Export apps with winget IDs as a winget import-compatible JSON file."""
+        if not self.applications:
+            messagebox.showwarning("No Data", "No applications to export. Please run a scan first.")
+            return
+
+        winget_apps = [a for a in self.filtered_apps if a.winget_id]
+        if not winget_apps:
+            messagebox.showwarning(
+                "No Winget IDs",
+                "None of the scanned applications could be matched to a winget package ID.\n\n"
+                "Ensure winget is installed and run a fresh scan.",
+            )
+            return
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".json",
+            filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")],
+            initialfile=f"WingetPackages_{timestamp}.json",
+            title="Export Winget Package List",
+        )
+        if not filepath:
+            return
+
+        try:
+            packages_list = [
+                {
+                    "PackageIdentifier": a.winget_id,
+                    "PackageVersion": a.version,
+                    "PackageName": a.name,
+                    "PackageSource": "winget",
+                }
+                for a in winget_apps
+            ]
+            export_data = {
+                "$schema": "https://aka.ms/winget-packages.schema.2.0.json",
+                "CreationDate": datetime.now().isoformat(),
+                "WinGetVersion": "1.0.0",
+                "Sources": [
+                    {
+                        "SourceDetails": {
+                            "Argument": "https://cdn.winget.microsoft.com/cache",
+                            "Identifier": "Microsoft.Winget.Source_8wekyb3d8bbwe",
+                            "Name": "winget",
+                            "Type": "Microsoft.PreIndexed.Package",
+                        },
+                        "Packages": packages_list,
+                    }
+                ],
+            }
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(export_data, f, indent=2, ensure_ascii=False)
+
+            messagebox.showinfo(
+                "Export Complete",
+                f"Exported {len(winget_apps)} matched packages to:\n{filepath}\n\n"
+                f"To restore, run:\n  winget import -i \"{filepath}\"",
+            )
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Failed to export:\n{e}")
+
+    def _lookup_winget(self):
+        """Open winget app page (or search page) in default browser for selected app."""
+        import webbrowser
+        app = self._get_selected_app()
+        if not app:
+            return
+        if app.winget_id:
+            url = f"https://winstall.app/apps/{app.winget_id}"
+        else:
+            query = app.name.replace(" ", "+")
+            url = f"https://winget.run/?q={query}"
+        webbrowser.open(url)
+
     def _show_context_menu(self, event):
         """Show context menu on right-click."""
         item = self.tree.identify_row(event.y)

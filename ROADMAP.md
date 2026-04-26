@@ -2,6 +2,15 @@
 
 Windows tool that scans registry + WOW6432Node + HKCU + UWP + Program Files, exports installed app inventory to TXT/CSV/MD/JSON. PyQt-style dark GUI with sortable columns, filtering, and context actions.
 
+## Completed (v1.2.0)
+- [x] Chocolatey scanner — scans `%PROGRAMDATA%\chocolatey\lib\`, parses `.nuspec`
+- [x] Scoop scanner — scans `~\scoop\apps\`, reads `current\manifest.json`
+- [x] pip scanner — `python -m pip list --format=json`
+- [x] Export Winget — official `winget import`-compatible JSON export
+- [x] Context menu: Lookup on Winget (winstall.app for known IDs, winget.run search fallback)
+- [x] Filter dropdown: Chocolatey, Scoop, Python (pip) options
+- [x] Stats panel: "Unregistered / Other" card covers all non-Desktop/non-Store types
+
 ## Completed (v1.1.0)
 - [x] winget cross-reference — Phase 4 scan populates Winget ID on matched registry apps
 - [x] Export: Markdown grouped report (Desktop / Store / Unregistered, pipe-table)
@@ -14,13 +23,13 @@ Windows tool that scans registry + WOW6432Node + HKCU + UWP + Program Files, exp
 
 ### Scanners
 - Add standalone winget-only entries (apps installed via winget but not in registry)
-- Chocolatey + Scoop + `pip` user-site + `cargo install` inventories
+- [x] Chocolatey + Scoop + `pip` inventories — done in v1.2.0
 - WSL distro inventory (name, version, installed packages via `apt list --installed` per distro)
 - Portable-app detection — scan `%LOCALAPPDATA%\Programs\`, `%USERPROFILE%\Portable\`, common flashdrive signatures
 - Driver + Windows Feature pass (`Get-WindowsOptionalFeature`, `pnputil /enum-drivers`)
 
 ### Export
-- **winget import** format (`.json`) so a new machine reinstalls with one command
+- [x] **winget import** format (`.json`) — done in v1.2.0
 - **Chocolatey `packages.config`** for choco-first environments
 - **PowerShell one-liner** equivalent for each app (auditor-friendly)
 
@@ -32,7 +41,8 @@ Windows tool that scans registry + WOW6432Node + HKCU + UWP + Program Files, exp
 ### UI / UX
 - Virtualized list so 5,000+ entries scroll at 60 FPS
 - Column chooser + save layout
-- Right-click: Uninstall, Lookup on winget
+- [x] Right-click: Lookup on Winget — done in v1.2.0
+- Right-click: Uninstall (invoke uninstall string silently or via GUI)
 - Searchable group-by (Publisher, Install Year, Location drive)
 - Progress bar with cancelable per-source pipeline
 - DPI-aware icon cache — extract `.exe` icons for each entry
