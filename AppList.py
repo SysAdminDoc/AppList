@@ -94,7 +94,7 @@ import ctypes
 # ══════════════════════════════════════════════════════════════════════════════
 
 APP_NAME = "AppList"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 APP_SUBTITLE = "Windows Application Inventory Scanner"
 
 # Premium Dark Theme Colors
@@ -145,10 +145,11 @@ class Application:
     source: str = ""
     architecture: str = ""
     app_type: str = "Desktop"
-    
+    winget_id: str = ""
+
     def to_dict(self) -> Dict[str, str]:
         return asdict(self)
-    
+
     def to_export_row(self) -> List[str]:
         return [
             self.name,
@@ -162,6 +163,7 @@ class Application:
             self.source,
             self.architecture,
             self.app_type,
+            self.winget_id,
         ]
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -470,7 +472,7 @@ class ApplicationScanner:
         self.seen_apps = set()
         
         # Scan registry (primary source)
-        self._update_status("Phase 1/3: Scanning Windows Registry...")
+        self._update_status("Phase 1/4: Scanning Windows Registry...")
         registry_apps = self.scan_registry()
         self.applications.extend(registry_apps)
         
@@ -478,7 +480,7 @@ class ApplicationScanner:
             return self.applications
         
         # Scan Store apps
-        self._update_status("Phase 2/3: Scanning Microsoft Store apps...")
+        self._update_status("Phase 2/4: Scanning Microsoft Store apps...")
         store_apps = self.scan_store_apps()
         self.applications.extend(store_apps)
         
@@ -486,9 +488,21 @@ class ApplicationScanner:
             return self.applications
         
         # Scan Program Files
-        self._update_status("Phase 3/3: Scanning Program Files...")
+        self._update_status("Phase 3/4: Scanning Program Files...")
         folder_apps = self.scan_program_files()
         self.applications.extend(folder_apps)
+        
+        if self._cancelled:
+            return self.applications
+        
+        # Cross-reference with winget for package IDs
+        self._update_status("Phase 4/4: Cross-referencing with winget...")
+        winget_map = self._build_winget_map()
+        if winget_map:
+            for app in self.applications:
+                norm = self._normalize_name(app.name)
+                if norm in winget_map:
+                    app.winget_id = winget_map[norm]
         
         # Sort by name
         self.applications.sort(key=lambda x: x.name.lower())
@@ -497,6 +511,91 @@ class ApplicationScanner:
         self._update_status(f"Scan complete. Found {len(self.applications)} applications.")
         
         return self.applications
+
+    def _build_winget_map(self) -> Dict[str, str]:
+        """Build a normalized-name → winget-package-ID map via winget list."""
+        winget_map: Dict[str, str] = {}
+        self._update_progress(88)
+        try:
+            # Try JSON output (winget 1.6+)
+            result = subprocess.run(
+                ["winget", "list", "--accept-source-agreements",
+                 "--disable-interactivity", "--output", "json"],
+                capture_output=True, text=True, timeout=90,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            packages: List[Dict[str, str]] = []
+            if result.returncode == 0 and result.stdout.strip():
+                try:
+                    data = json.loads(result.stdout)
+                    if isinstance(data, list) and data:
+                        packages = data
+                except json.JSONDecodeError:
+                    pass
+
+            # Fall back to tabular text parsing
+            if not packages:
+                result = subprocess.run(
+                    ["winget", "list", "--accept-source-agreements",
+                     "--disable-interactivity"],
+                    capture_output=True, text=True, timeout=90,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                )
+                if result.returncode == 0:
+                    packages = self._parse_winget_table(result.stdout)
+
+            for pkg in packages:
+                name = str(pkg.get("Name", "")).strip()
+                winget_id = str(pkg.get("Id", "")).strip()
+                if name and winget_id:
+                    winget_map[self._normalize_name(name)] = winget_id
+
+        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+            pass
+
+        return winget_map
+
+    def _parse_winget_table(self, output: str) -> List[Dict[str, str]]:
+        """Parse winget column-aligned text output into a list of dicts."""
+        packages: List[Dict[str, str]] = []
+        lines = output.splitlines()
+
+        header_idx = -1
+        for i, line in enumerate(lines):
+            if "Name" in line and "Id" in line and "Version" in line:
+                header_idx = i
+                break
+        if header_idx < 0:
+            return packages
+
+        header = lines[header_idx]
+        name_pos = header.find("Name")
+        id_pos = header.find("Id")
+        ver_pos = header.find("Version")
+        if name_pos < 0 or id_pos < 0:
+            return packages
+
+        for line in lines[header_idx + 2:]:
+            if not line.strip():
+                continue
+            try:
+                name = line[name_pos:id_pos].strip() if id_pos > name_pos else ""
+                winget_id = (
+                    line[id_pos:ver_pos].strip()
+                    if ver_pos > id_pos
+                    else line[id_pos:].strip()
+                )
+                version = (
+                    line[ver_pos:].split()[0]
+                    if ver_pos > 0 and len(line) > ver_pos
+                    else ""
+                )
+                if name or winget_id:
+                    packages.append({"Name": name, "Id": winget_id, "Version": version})
+            except Exception:
+                continue
+
+        return packages
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CUSTOM WIDGETS
@@ -855,19 +954,35 @@ class AppList(ctk.CTk):
         
         self.export_txt_btn = SecondaryButton(
             export_frame,
-            text="📄  Export TXT",
-            width=130,
+            text="Export TXT",
+            width=110,
             command=self._export_txt,
         )
-        self.export_txt_btn.pack(side="left", padx=(0, 12))
+        self.export_txt_btn.pack(side="left", padx=(0, 8))
         
         self.export_csv_btn = SecondaryButton(
             export_frame,
-            text="📊  Export CSV",
-            width=130,
+            text="Export CSV",
+            width=110,
             command=self._export_csv,
         )
-        self.export_csv_btn.pack(side="left")
+        self.export_csv_btn.pack(side="left", padx=(0, 8))
+
+        self.export_md_btn = SecondaryButton(
+            export_frame,
+            text="Export MD",
+            width=110,
+            command=self._export_markdown,
+        )
+        self.export_md_btn.pack(side="left", padx=(0, 8))
+
+        self.export_json_btn = SecondaryButton(
+            export_frame,
+            text="Export JSON",
+            width=120,
+            command=self._export_json,
+        )
+        self.export_json_btn.pack(side="left")
     
     def _create_main_content(self):
         """Create the main content area with treeview."""
@@ -882,8 +997,9 @@ class AppList(ctk.CTk):
         
         # Treeview columns
         columns = (
-            "name", "publisher", "version", "install_date", 
-            "install_location", "registry_key", "type"
+            "name", "publisher", "version", "install_date",
+            "install_location", "registry_key", "type",
+            "size", "architecture", "winget_id",
         )
         
         # Create treeview with scrollbar
@@ -908,13 +1024,16 @@ class AppList(ctk.CTk):
         
         # Configure columns
         column_config = {
-            "name": ("Application Name", 280),
+            "name": ("Application Name", 260),
             "publisher": ("Publisher", 180),
             "version": ("Version", 100),
             "install_date": ("Install Date", 100),
-            "install_location": ("Install Location", 300),
-            "registry_key": ("Registry Key", 350),
+            "install_location": ("Install Location", 280),
+            "registry_key": ("Registry Key", 320),
             "type": ("Type", 120),
+            "size": ("Size", 90),
+            "architecture": ("Arch", 80),
+            "winget_id": ("Winget ID", 200),
         }
         
         for col, (heading, width) in column_config.items():
@@ -931,8 +1050,10 @@ class AppList(ctk.CTk):
         self.context_menu.add_command(label="Copy Name", command=self._copy_name)
         self.context_menu.add_command(label="Copy Install Location", command=self._copy_location)
         self.context_menu.add_command(label="Copy Registry Key", command=self._copy_registry)
+        self.context_menu.add_command(label="Copy Uninstall Command", command=self._copy_uninstall)
         self.context_menu.add_separator()
         self.context_menu.add_command(label="Open Install Location", command=self._open_location)
+        self.context_menu.add_command(label="Open Registry Key in Regedit", command=self._open_registry_key)
         
         self.tree.bind("<Button-3>", self._show_context_menu)
         self.tree.bind("<Double-1>", self._on_double_click)
@@ -991,6 +1112,8 @@ class AppList(ctk.CTk):
         self.cancel_button.configure(state="normal")
         self.export_txt_btn.configure(state="disabled")
         self.export_csv_btn.configure(state="disabled")
+        self.export_md_btn.configure(state="disabled")
+        self.export_json_btn.configure(state="disabled")
         
         # Clear existing data
         for item in self.tree.get_children():
@@ -1053,6 +1176,8 @@ class AppList(ctk.CTk):
         self.cancel_button.configure(state="disabled")
         self.export_txt_btn.configure(state="normal")
         self.export_csv_btn.configure(state="normal")
+        self.export_md_btn.configure(state="normal")
+        self.export_json_btn.configure(state="normal")
         
         self._update_status(f"Scan complete. Found {len(apps)} applications.")
     
@@ -1091,6 +1216,9 @@ class AppList(ctk.CTk):
                 app.install_location,
                 app.uninstall_registry_key,
                 app.app_type,
+                app.estimated_size,
+                app.architecture,
+                app.winget_id,
             ))
         
         # Update count
@@ -1155,6 +1283,9 @@ class AppList(ctk.CTk):
             "install_location": "install_location",
             "registry_key": "uninstall_registry_key",
             "type": "app_type",
+            "size": "estimated_size",
+            "architecture": "architecture",
+            "winget_id": "winget_id",
         }
         
         attr = attr_map.get(self.sort_column, "name")
@@ -1257,6 +1388,7 @@ class AppList(ctk.CTk):
                     "Source",
                     "Architecture",
                     "Type",
+                    "Winget ID",
                 ])
                 
                 # Data rows
@@ -1267,7 +1399,96 @@ class AppList(ctk.CTk):
             
         except Exception as e:
             messagebox.showerror("Export Error", f"Failed to export:\n{e}")
-    
+
+    def _export_markdown(self):
+        """Export applications to a Markdown report grouped by type."""
+        if not self.applications:
+            messagebox.showwarning("No Data", "No applications to export. Please run a scan first.")
+            return
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".md",
+            filetypes=[("Markdown Files", "*.md"), ("All Files", "*.*")],
+            initialfile=f"AppList_Export_{timestamp}.md",
+            title="Export as Markdown Report",
+        )
+        if not filepath:
+            return
+
+        try:
+            hostname = os.environ.get("COMPUTERNAME", "Unknown")
+            username = os.environ.get("USERNAME", "Unknown")
+
+            desktop = [a for a in self.filtered_apps if a.app_type == "Desktop"]
+            store   = [a for a in self.filtered_apps if a.app_type == "Store App"]
+            unreg   = [a for a in self.filtered_apps if a.app_type == "Desktop (Unregistered)"]
+
+            def _md_row(i: int, app: Application) -> str:
+                name = app.name.replace("|", "\\|")
+                pub  = app.publisher.replace("|", "\\|")
+                wid  = app.winget_id if app.winget_id else ""
+                return f"| {i} | {name} | {pub} | {app.version} | {app.install_date} | {app.estimated_size} | {wid} |\n"
+
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(f"# Application Inventory — {hostname}\n\n")
+                f.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  \n")
+                f.write(f"**Machine:** `{hostname}` / `{username}`  \n")
+                f.write(f"**Total:** {len(self.filtered_apps)} applications  \n\n")
+                f.write("---\n\n")
+
+                for group_name, group in [
+                    ("Desktop Apps", desktop),
+                    ("Store / UWP Apps", store),
+                    ("Unregistered (Program Files)", unreg),
+                ]:
+                    if not group:
+                        continue
+                    f.write(f"## {group_name} ({len(group)})\n\n")
+                    f.write("| # | Name | Publisher | Version | Install Date | Size | Winget ID |\n")
+                    f.write("|---|------|-----------|---------|--------------|------|-----------|\n")
+                    for i, app in enumerate(group, 1):
+                        f.write(_md_row(i, app))
+                    f.write("\n")
+
+            messagebox.showinfo("Export Complete", f"Successfully exported {len(self.filtered_apps)} applications to:\n{filepath}")
+
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Failed to export:\n{e}")
+
+    def _export_json(self):
+        """Export applications to AppList JSON (full schema, round-trippable)."""
+        if not self.applications:
+            messagebox.showwarning("No Data", "No applications to export. Please run a scan first.")
+            return
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".json",
+            filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")],
+            initialfile=f"AppList_Export_{timestamp}.json",
+            title="Export as JSON",
+        )
+        if not filepath:
+            return
+
+        try:
+            hostname = os.environ.get("COMPUTERNAME", "Unknown")
+            export_data = {
+                "schema": f"AppList/{APP_VERSION}",
+                "generated": datetime.now().isoformat(),
+                "machine": hostname,
+                "total": len(self.filtered_apps),
+                "applications": [app.to_dict() for app in self.filtered_apps],
+            }
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(export_data, f, indent=2, ensure_ascii=False)
+
+            messagebox.showinfo("Export Complete", f"Successfully exported {len(self.filtered_apps)} applications to:\n{filepath}")
+
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Failed to export:\n{e}")
+
     # ══════════════════════════════════════════════════════════════════════════
     # CONTEXT MENU ACTIONS
     # ══════════════════════════════════════════════════════════════════════════
@@ -1321,6 +1542,39 @@ class AppList(ctk.CTk):
             os.startfile(app.install_location)
         else:
             messagebox.showinfo("Not Available", "Install location not available or does not exist.")
+
+    def _copy_uninstall(self):
+        """Copy uninstall command to clipboard."""
+        app = self._get_selected_app()
+        if app and app.uninstall_command:
+            self.clipboard_clear()
+            self.clipboard_append(app.uninstall_command)
+        else:
+            messagebox.showinfo("Not Available", "No uninstall command available for this application.")
+
+    def _open_registry_key(self):
+        """Open the application's registry key in Regedit."""
+        app = self._get_selected_app()
+        if not app or not app.uninstall_registry_key:
+            messagebox.showinfo("Not Available", "No registry key available for this application.")
+            return
+        reg_key = app.uninstall_registry_key
+        try:
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Applets\Regedit",
+                0, winreg.KEY_SET_VALUE,
+            ) as key:
+                winreg.SetValueEx(key, "LastKey", 0, winreg.REG_SZ, reg_key)
+            subprocess.Popen(["regedit.exe"], creationflags=subprocess.CREATE_NO_WINDOW)
+        except Exception:
+            self.clipboard_clear()
+            self.clipboard_append(reg_key)
+            messagebox.showinfo(
+                "Registry Key Copied",
+                f"Could not open Regedit automatically.\n\n"
+                f"Key copied to clipboard:\n{reg_key}",
+            )
     
     def _on_double_click(self, event):
         """Handle double-click on item."""
