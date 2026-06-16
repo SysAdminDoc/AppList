@@ -9,7 +9,7 @@
 ╚═══════════════════════════════════════════════════════════════════════════════╝
 
 Author: Matt
-Version: 1.4.0
+Version: 1.4.1
 Purpose: Pre-reinstall application inventory for Windows migration
 """
 
@@ -96,30 +96,33 @@ import ctypes
 # ══════════════════════════════════════════════════════════════════════════════
 
 APP_NAME = "AppList"
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.4.1"
 APP_SUBTITLE = "Windows Application Inventory Scanner"
 
 # Premium Dark Theme Colors
 COLORS = {
-    "bg_primary": "#0D0D0D",
-    "bg_secondary": "#141414",
-    "bg_tertiary": "#1A1A1A",
-    "bg_card": "#1E1E1E",
-    "bg_elevated": "#252525",
-    "bg_hover": "#2A2A2A",
-    "accent_primary": "#3B82F6",
-    "accent_secondary": "#60A5FA",
-    "accent_glow": "#2563EB",
-    "accent_success": "#10B981",
-    "accent_warning": "#F59E0B",
-    "accent_error": "#EF4444",
-    "text_primary": "#F5F5F5",
-    "text_secondary": "#A3A3A3",
-    "text_muted": "#737373",
-    "border_subtle": "#2A2A2A",
-    "border_accent": "#3B82F6",
-    "gradient_start": "#1E3A5F",
-    "gradient_end": "#0D1B2A",
+    "bg_primary": "#080B10",
+    "bg_secondary": "#0D1118",
+    "bg_tertiary": "#121821",
+    "bg_card": "#10161F",
+    "bg_elevated": "#18212D",
+    "bg_hover": "#202B39",
+    "bg_pressed": "#0B1220",
+    "accent_primary": "#2F7DF6",
+    "accent_secondary": "#5EA0FF",
+    "accent_glow": "#174EA6",
+    "accent_success": "#6CCB77",
+    "accent_warning": "#F4B740",
+    "accent_error": "#F87171",
+    "text_primary": "#F4F7FB",
+    "text_secondary": "#C5D0DD",
+    "text_muted": "#7F8B99",
+    "border_subtle": "#223041",
+    "border_strong": "#34465B",
+    "border_accent": "#2F7DF6",
+    "table_header": "#141C27",
+    "table_row_alt": "#0C121A",
+    "table_selected": "#1D4ED8",
 }
 
 # Registry paths for installed applications
@@ -170,6 +173,34 @@ SCAN_SOURCE_ALIASES = {
     "python": {"pip"},
     "winget": {"winget"},
 }
+
+TYPE_FILTERS = [
+    "All Types",
+    "Desktop",
+    "Store",
+    "Unregistered",
+    "Chocolatey",
+    "Scoop",
+    "Python (pip)",
+]
+
+SOURCE_FILTERS = [
+    "All Sources",
+    "Registry",
+    "Program Files",
+    "Microsoft Store",
+    "Package Managers",
+    "Python",
+    "Winget Matched",
+]
+
+UPGRADE_FILTERS = [
+    "Any Upgrade State",
+    "Updates Available",
+    "Missing Install Path",
+    "Winget Matched",
+    "No Winget Match",
+]
 
 
 def split_windows_command_line(command_line: str) -> List[str]:
@@ -890,6 +921,7 @@ class ApplicationScanner:
                 version=version,
                 publisher=publisher,
                 install_location=pkg_path,
+                source="Chocolatey",
                 app_type="Chocolatey",
             ))
 
@@ -958,6 +990,7 @@ class ApplicationScanner:
                 version=version,
                 publisher=publisher,
                 install_location=current_path if os.path.isdir(current_path) else app_path,
+                source="Scoop",
                 app_type="Scoop",
             ))
 
@@ -993,6 +1026,7 @@ class ApplicationScanner:
                     name=pkg_name,
                     version=str(pkg.get("version", "")).strip(),
                     publisher="",
+                    source="Python (pip)",
                     app_type="Python Package",
                 ))
         except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.SubprocessError,
@@ -1124,76 +1158,97 @@ class GradientFrame(ctk.CTkFrame):
         self.configure(fg_color=COLORS["bg_primary"])
 
 class StatsCard(ctk.CTkFrame):
-    """Elegant statistics card widget."""
-    
-    def __init__(self, master, title: str, value: str = "0", icon: str = "●", **kwargs):
+    """Compact statistics card with a stable visual rhythm."""
+
+    def __init__(
+        self,
+        master,
+        title: str,
+        value: str = "0",
+        helper: str = "",
+        accent: str = COLORS["accent_primary"],
+        **kwargs,
+    ):
         super().__init__(master, **kwargs)
         self.configure(
             fg_color=COLORS["bg_card"],
-            corner_radius=12,
+            corner_radius=8,
             border_width=1,
             border_color=COLORS["border_subtle"],
         )
-        
-        # Icon
-        self.icon_label = ctk.CTkLabel(
-            self,
-            text=icon,
-            font=ctk.CTkFont(size=24),
-            text_color=COLORS["accent_primary"],
-        )
-        self.icon_label.pack(anchor="w", padx=16, pady=(16, 4))
-        
-        # Value
+
+        accent_bar = ctk.CTkFrame(self, width=3, fg_color=accent, corner_radius=0)
+        accent_bar.pack(side="left", fill="y")
+
+        content = ctk.CTkFrame(self, fg_color="transparent")
+        content.pack(side="left", fill="both", expand=True, padx=16, pady=14)
+
+        top_row = ctk.CTkFrame(content, fg_color="transparent")
+        top_row.pack(fill="x")
+
         self.value_label = ctk.CTkLabel(
-            self,
+            top_row,
             text=value,
-            font=ctk.CTkFont(family="Segoe UI", size=32, weight="bold"),
+            font=ctk.CTkFont(family="Segoe UI", size=26, weight="bold"),
             text_color=COLORS["text_primary"],
         )
-        self.value_label.pack(anchor="w", padx=16, pady=(0, 4))
-        
-        # Title
+        self.value_label.pack(side="left")
+
         self.title_label = ctk.CTkLabel(
-            self,
+            top_row,
             text=title,
-            font=ctk.CTkFont(family="Segoe UI", size=12),
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            text_color=COLORS["text_secondary"],
+        )
+        self.title_label.pack(side="left", padx=(12, 0), pady=(7, 0))
+
+        self.helper_label = ctk.CTkLabel(
+            content,
+            text=helper,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color=COLORS["text_muted"],
         )
-        self.title_label.pack(anchor="w", padx=16, pady=(0, 16))
-    
+        self.helper_label.pack(anchor="w", pady=(5, 0))
+
     def set_value(self, value: str):
         self.value_label.configure(text=value)
 
     def set_title(self, title: str):
         self.title_label.configure(text=title)
 
+    def set_helper(self, helper: str):
+        self.helper_label.configure(text=helper)
+
+
 class PremiumButton(ctk.CTkButton):
-    """Premium styled button with hover effects."""
-    
+    """Primary action button."""
+
     def __init__(self, master, **kwargs):
         default_config = {
             "corner_radius": 8,
-            "height": 40,
+            "height": 38,
             "font": ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
             "fg_color": COLORS["accent_primary"],
             "hover_color": COLORS["accent_secondary"],
             "text_color": COLORS["text_primary"],
+            "text_color_disabled": COLORS["text_muted"],
         }
         default_config.update(kwargs)
         super().__init__(master, **default_config)
 
+
 class SecondaryButton(ctk.CTkButton):
-    """Secondary styled button."""
-    
+    """Secondary action button with consistent disabled treatment."""
+
     def __init__(self, master, **kwargs):
         default_config = {
             "corner_radius": 8,
-            "height": 40,
-            "font": ctk.CTkFont(family="Segoe UI", size=13),
+            "height": 38,
+            "font": ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             "fg_color": COLORS["bg_elevated"],
             "hover_color": COLORS["bg_hover"],
-            "text_color": COLORS["text_primary"],
+            "text_color": COLORS["text_secondary"],
+            "text_color_disabled": COLORS["text_muted"],
             "border_width": 1,
             "border_color": COLORS["border_subtle"],
         }
@@ -1232,6 +1287,8 @@ class AppList(ctk.CTk):
         self.scan_thread = None
         self.sort_column = "name"
         self.sort_reverse = False
+        self.is_scanning = False
+        self.scan_has_run = False
         
         # Build UI
         self._create_header()
@@ -1239,6 +1296,13 @@ class AppList(ctk.CTk):
         self._create_toolbar()
         self._create_main_content()
         self._create_status_bar()
+        self._set_export_buttons_enabled(False)
+        self._show_empty_state(
+            "No inventory yet",
+            "Run a scan to discover installed desktop, Store, package-manager, and Python applications.",
+            action_text="Scan System",
+            action_command=self._start_scan,
+        )
         
         # Configure treeview style
         self._configure_treeview_style()
@@ -1272,13 +1336,18 @@ class AppList(ctk.CTk):
             foreground=COLORS["text_primary"],
             fieldbackground=COLORS["bg_secondary"],
             borderwidth=0,
+            bordercolor=COLORS["bg_secondary"],
+            lightcolor=COLORS["bg_secondary"],
+            darkcolor=COLORS["bg_secondary"],
+            relief="flat",
             font=("Segoe UI", 10),
-            rowheight=32,
+            rowheight=34,
         )
+        style.layout("Premium.Treeview", [("Treeview.treearea", {"sticky": "nswe"})])
         
         style.configure(
             "Premium.Treeview.Heading",
-            background=COLORS["bg_tertiary"],
+            background=COLORS["table_header"],
             foreground=COLORS["text_primary"],
             borderwidth=0,
             font=("Segoe UI", 10, "bold"),
@@ -1287,19 +1356,27 @@ class AppList(ctk.CTk):
         
         style.map(
             "Premium.Treeview",
-            background=[("selected", COLORS["accent_primary"])],
+            background=[("selected", COLORS["table_selected"])],
             foreground=[("selected", COLORS["text_primary"])],
         )
         
         style.map(
             "Premium.Treeview.Heading",
             background=[("active", COLORS["bg_elevated"])],
+            foreground=[("active", COLORS["text_primary"])],
         )
         
         # Scrollbar styling
         style.configure(
             "Premium.Vertical.TScrollbar",
-            background=COLORS["bg_tertiary"],
+            background=COLORS["bg_elevated"],
+            troughcolor=COLORS["bg_secondary"],
+            borderwidth=0,
+            arrowsize=0,
+        )
+        style.configure(
+            "Premium.Horizontal.TScrollbar",
+            background=COLORS["bg_elevated"],
             troughcolor=COLORS["bg_secondary"],
             borderwidth=0,
             arrowsize=0,
@@ -1311,14 +1388,14 @@ class AppList(ctk.CTk):
             self,
             fg_color=COLORS["bg_secondary"],
             corner_radius=0,
-            height=100,
+            height=88,
         )
         header_frame.pack(fill="x", padx=0, pady=0)
         header_frame.pack_propagate(False)
         
         # Inner container
         inner = ctk.CTkFrame(header_frame, fg_color="transparent")
-        inner.pack(fill="both", expand=True, padx=32, pady=20)
+        inner.pack(fill="both", expand=True, padx=30, pady=17)
         
         # Left side - branding
         brand_frame = ctk.CTkFrame(inner, fg_color="transparent")
@@ -1328,28 +1405,39 @@ class AppList(ctk.CTk):
         icon_label = ctk.CTkLabel(
             brand_frame,
             text="◈",
-            font=ctk.CTkFont(size=36),
+            font=ctk.CTkFont(size=32),
             text_color=COLORS["accent_primary"],
         )
-        icon_label.pack(side="left", padx=(0, 16))
+        icon_label.pack(side="left", padx=(0, 14))
         
         # Title stack
         title_stack = ctk.CTkFrame(brand_frame, fg_color="transparent")
-        title_stack.pack(side="left", fill="y", pady=4)
+        title_stack.pack(side="left", fill="y", pady=2)
+
+        title_row = ctk.CTkFrame(title_stack, fg_color="transparent")
+        title_row.pack(anchor="w")
         
         title_label = ctk.CTkLabel(
-            title_stack,
+            title_row,
             text=APP_NAME,
-            font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"),
+            font=ctk.CTkFont(family="Segoe UI", size=23, weight="bold"),
             text_color=COLORS["text_primary"],
         )
-        title_label.pack(anchor="w")
+        title_label.pack(side="left")
+
+        version_label = ctk.CTkLabel(
+            title_row,
+            text=f"v{APP_VERSION}",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color=COLORS["text_muted"],
+        )
+        version_label.pack(side="left", padx=(10, 0), pady=(4, 0))
         
         subtitle_label = ctk.CTkLabel(
             title_stack,
             text=APP_SUBTITLE,
             font=ctk.CTkFont(family="Segoe UI", size=12),
-            text_color=COLORS["text_muted"],
+            text_color=COLORS["text_secondary"],
         )
         subtitle_label.pack(anchor="w")
         
@@ -1359,16 +1447,16 @@ class AppList(ctk.CTk):
         
         self.scan_button = PremiumButton(
             actions_frame,
-            text="⟳  Scan System",
-            width=160,
+            text="Scan System",
+            width=150,
             command=self._start_scan,
         )
-        self.scan_button.pack(side="left", padx=(0, 12))
+        self.scan_button.pack(side="left", padx=(0, 10))
         
         self.cancel_button = SecondaryButton(
             actions_frame,
-            text="✕  Cancel",
-            width=100,
+            text="Cancel",
+            width=96,
             command=self._cancel_scan,
             state="disabled",
         )
@@ -1379,22 +1467,46 @@ class AppList(ctk.CTk):
         stats_frame = ctk.CTkFrame(
             self,
             fg_color="transparent",
-            height=130,
+            height=102,
         )
-        stats_frame.pack(fill="x", padx=32, pady=(24, 0))
+        stats_frame.pack(fill="x", padx=30, pady=(18, 0))
         stats_frame.pack_propagate(False)
         
         # Stats cards
-        self.stats_total = StatsCard(stats_frame, "Total Applications", "—", "◉")
-        self.stats_total.pack(side="left", fill="both", expand=True, padx=(0, 12))
+        self.stats_total = StatsCard(
+            stats_frame,
+            "Total",
+            "0",
+            "All applications found",
+            COLORS["accent_primary"],
+        )
+        self.stats_total.pack(side="left", fill="both", expand=True, padx=(0, 10))
         
-        self.stats_desktop = StatsCard(stats_frame, "Desktop Apps", "—", "▣")
-        self.stats_desktop.pack(side="left", fill="both", expand=True, padx=(0, 12))
+        self.stats_desktop = StatsCard(
+            stats_frame,
+            "Desktop",
+            "0",
+            "Registry and desktop entries",
+            COLORS["accent_secondary"],
+        )
+        self.stats_desktop.pack(side="left", fill="both", expand=True, padx=(0, 10))
         
-        self.stats_store = StatsCard(stats_frame, "Store Apps", "—", "◈")
-        self.stats_store.pack(side="left", fill="both", expand=True, padx=(0, 12))
+        self.stats_store = StatsCard(
+            stats_frame,
+            "Store",
+            "0",
+            "Microsoft Store packages",
+            COLORS["accent_success"],
+        )
+        self.stats_store.pack(side="left", fill="both", expand=True, padx=(0, 10))
         
-        self.stats_unregistered = StatsCard(stats_frame, "Unregistered / Other", "—", "◇")
+        self.stats_unregistered = StatsCard(
+            stats_frame,
+            "Other",
+            "0",
+            "Unregistered, package, and Python",
+            COLORS["accent_warning"],
+        )
         self.stats_unregistered.pack(side="left", fill="both", expand=True)
     
     def _create_toolbar(self):
@@ -1402,66 +1514,49 @@ class AppList(ctk.CTk):
         toolbar_frame = ctk.CTkFrame(
             self,
             fg_color="transparent",
-            height=56,
+            height=92,
         )
-        toolbar_frame.pack(fill="x", padx=32, pady=(24, 16))
+        toolbar_frame.pack(fill="x", padx=30, pady=(18, 12))
         toolbar_frame.pack_propagate(False)
-        
-        # Search section
-        search_frame = ctk.CTkFrame(toolbar_frame, fg_color="transparent")
-        search_frame.pack(side="left", fill="y")
-        
-        search_icon = ctk.CTkLabel(
-            search_frame,
-            text="🔍",
-            font=ctk.CTkFont(size=14),
-            text_color=COLORS["text_muted"],
-        )
-        search_icon.pack(side="left", padx=(0, 8))
+
+        top_row = ctk.CTkFrame(toolbar_frame, fg_color="transparent")
+        top_row.pack(fill="x")
+
+        bottom_row = ctk.CTkFrame(toolbar_frame, fg_color="transparent")
+        bottom_row.pack(fill="x", pady=(10, 0))
         
         self.search_var = tk.StringVar()
         self.search_var.trace("w", self._on_search_changed)
+
+        search_label = ctk.CTkLabel(
+            top_row,
+            text="Search",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color=COLORS["text_muted"],
+        )
+        search_label.pack(side="left", padx=(0, 8))
         
         self.search_entry = ctk.CTkEntry(
-            search_frame,
+            top_row,
             placeholder_text="Search applications...",
             textvariable=self.search_var,
-            width=320,
-            height=40,
+            width=300,
+            height=38,
             font=ctk.CTkFont(family="Segoe UI", size=13),
             fg_color=COLORS["bg_card"],
             border_color=COLORS["border_subtle"],
+            placeholder_text_color=COLORS["text_muted"],
             corner_radius=8,
         )
         self.search_entry.pack(side="left")
-        
-        # Filter dropdown
-        filter_frame = ctk.CTkFrame(toolbar_frame, fg_color="transparent")
-        filter_frame.pack(side="left", padx=(24, 0), fill="y")
-        
-        filter_label = ctk.CTkLabel(
-            filter_frame,
-            text="Filter:",
-            font=ctk.CTkFont(family="Segoe UI", size=12),
-            text_color=COLORS["text_muted"],
-        )
-        filter_label.pack(side="left", padx=(0, 8))
-        
-        self.filter_var = tk.StringVar(value="All Applications")
+
+        self.filter_var = tk.StringVar(value="All Types")
         self.filter_dropdown = ctk.CTkComboBox(
-            filter_frame,
-            values=[
-                "All Applications",
-                "Desktop Apps",
-                "Store Apps",
-                "Unregistered",
-                "Chocolatey",
-                "Scoop",
-                "Python (pip)",
-            ],
+            top_row,
+            values=TYPE_FILTERS,
             variable=self.filter_var,
-            width=180,
-            height=40,
+            width=150,
+            height=38,
             font=ctk.CTkFont(family="Segoe UI", size=12),
             fg_color=COLORS["bg_card"],
             border_color=COLORS["border_subtle"],
@@ -1473,16 +1568,63 @@ class AppList(ctk.CTk):
             state="readonly",
             command=self._on_filter_changed,
         )
-        self.filter_dropdown.pack(side="left")
-        
-        # Export section
-        export_frame = ctk.CTkFrame(toolbar_frame, fg_color="transparent")
-        export_frame.pack(side="right", fill="y")
+        self.filter_dropdown.pack(side="left", padx=(10, 0))
+
+        self.source_filter_var = tk.StringVar(value="All Sources")
+        self.source_filter_dropdown = ctk.CTkComboBox(
+            top_row,
+            values=SOURCE_FILTERS,
+            variable=self.source_filter_var,
+            width=170,
+            height=38,
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            fg_color=COLORS["bg_card"],
+            border_color=COLORS["border_subtle"],
+            button_color=COLORS["bg_elevated"],
+            button_hover_color=COLORS["bg_hover"],
+            dropdown_fg_color=COLORS["bg_card"],
+            dropdown_hover_color=COLORS["bg_elevated"],
+            corner_radius=8,
+            state="readonly",
+            command=self._on_filter_changed,
+        )
+        self.source_filter_dropdown.pack(side="left", padx=(10, 0))
+
+        self.upgrade_filter_var = tk.StringVar(value="Any Upgrade State")
+        self.upgrade_filter_dropdown = ctk.CTkComboBox(
+            top_row,
+            values=UPGRADE_FILTERS,
+            variable=self.upgrade_filter_var,
+            width=190,
+            height=38,
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            fg_color=COLORS["bg_card"],
+            border_color=COLORS["border_subtle"],
+            button_color=COLORS["bg_elevated"],
+            button_hover_color=COLORS["bg_hover"],
+            dropdown_fg_color=COLORS["bg_card"],
+            dropdown_hover_color=COLORS["bg_elevated"],
+            corner_radius=8,
+            state="readonly",
+            command=self._on_filter_changed,
+        )
+        self.upgrade_filter_dropdown.pack(side="left", padx=(10, 0))
+
+        export_hint = ctk.CTkLabel(
+            bottom_row,
+            text="Exports use the current filtered view.",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=COLORS["text_muted"],
+        )
+        export_hint.pack(side="left")
+
+        export_frame = ctk.CTkFrame(bottom_row, fg_color="transparent")
+        export_frame.pack(side="right")
         
         self.export_txt_btn = SecondaryButton(
             export_frame,
             text="Export TXT",
-            width=110,
+            width=106,
             command=self._export_txt,
         )
         self.export_txt_btn.pack(side="left", padx=(0, 8))
@@ -1490,7 +1632,7 @@ class AppList(ctk.CTk):
         self.export_csv_btn = SecondaryButton(
             export_frame,
             text="Export CSV",
-            width=110,
+            width=106,
             command=self._export_csv,
         )
         self.export_csv_btn.pack(side="left", padx=(0, 8))
@@ -1498,7 +1640,7 @@ class AppList(ctk.CTk):
         self.export_md_btn = SecondaryButton(
             export_frame,
             text="Export MD",
-            width=110,
+            width=104,
             command=self._export_markdown,
         )
         self.export_md_btn.pack(side="left", padx=(0, 8))
@@ -1506,7 +1648,7 @@ class AppList(ctk.CTk):
         self.export_json_btn = SecondaryButton(
             export_frame,
             text="Export JSON",
-            width=120,
+            width=116,
             command=self._export_json,
         )
         self.export_json_btn.pack(side="left", padx=(0, 8))
@@ -1514,7 +1656,7 @@ class AppList(ctk.CTk):
         self.export_winget_btn = SecondaryButton(
             export_frame,
             text="Export Winget",
-            width=130,
+            width=124,
             command=self._export_winget,
         )
         self.export_winget_btn.pack(side="left")
@@ -1524,17 +1666,17 @@ class AppList(ctk.CTk):
         content_frame = ctk.CTkFrame(
             self,
             fg_color=COLORS["bg_card"],
-            corner_radius=12,
+            corner_radius=8,
             border_width=1,
             border_color=COLORS["border_subtle"],
         )
-        content_frame.pack(fill="both", expand=True, padx=32, pady=(0, 16))
+        content_frame.pack(fill="both", expand=True, padx=30, pady=(0, 14))
         
         # Treeview columns
         columns = (
             "name", "publisher", "version", "install_date",
-            "install_location", "registry_key", "type",
-            "size", "architecture", "winget_id", "upgrade_available",
+            "type", "source", "upgrade_available", "winget_id",
+            "size", "architecture", "install_location", "registry_key",
         )
         
         # Create treeview with scrollbar
@@ -1542,8 +1684,24 @@ class AppList(ctk.CTk):
         tree_frame.pack(fill="both", expand=True, padx=2, pady=2)
         
         # Scrollbars
-        y_scroll = ttk.Scrollbar(tree_frame, orient="vertical", style="Premium.Vertical.TScrollbar")
-        x_scroll = ttk.Scrollbar(tree_frame, orient="horizontal")
+        y_scroll = ctk.CTkScrollbar(
+            tree_frame,
+            orientation="vertical",
+            width=12,
+            corner_radius=4,
+            fg_color=COLORS["bg_secondary"],
+            button_color=COLORS["bg_elevated"],
+            button_hover_color=COLORS["bg_hover"],
+        )
+        x_scroll = ctk.CTkScrollbar(
+            tree_frame,
+            orientation="horizontal",
+            height=12,
+            corner_radius=4,
+            fg_color=COLORS["bg_secondary"],
+            button_color=COLORS["bg_elevated"],
+            button_hover_color=COLORS["bg_hover"],
+        )
         
         self.tree = ttk.Treeview(
             tree_frame,
@@ -1554,22 +1712,23 @@ class AppList(ctk.CTk):
             xscrollcommand=x_scroll.set,
         )
         
-        y_scroll.config(command=self.tree.yview)
-        x_scroll.config(command=self.tree.xview)
+        y_scroll.configure(command=self.tree.yview)
+        x_scroll.configure(command=self.tree.xview)
         
         # Configure columns
         column_config = {
-            "name": ("Application Name", 260),
+            "name": ("Application", 260),
             "publisher": ("Publisher", 180),
             "version": ("Version", 100),
-            "install_date": ("Install Date", 100),
-            "install_location": ("Install Location", 280),
-            "registry_key": ("Registry Key", 320),
-            "type": ("Type", 120),
+            "install_date": ("Installed", 105),
+            "type": ("Type", 132),
+            "source": ("Source", 132),
+            "upgrade_available": ("Upgrade", 175),
+            "winget_id": ("Winget ID", 200),
             "size": ("Size", 90),
             "architecture": ("Arch", 80),
-            "winget_id": ("Winget ID", 200),
-            "upgrade_available": ("Update Available", 200),
+            "install_location": ("Location", 280),
+            "registry_key": ("Registry Key", 320),
         }
         
         for col, (heading, width) in column_config.items():
@@ -1580,9 +1739,60 @@ class AppList(ctk.CTk):
         y_scroll.pack(side="right", fill="y")
         x_scroll.pack(side="bottom", fill="x")
         self.tree.pack(side="left", fill="both", expand=True)
+
+        self.tree.tag_configure("ghost", foreground=COLORS["accent_warning"])
+        self.tree.tag_configure("update", foreground=COLORS["accent_secondary"])
+
+        self.empty_state_frame = ctk.CTkFrame(
+            content_frame,
+            fg_color="transparent",
+            corner_radius=0,
+            border_width=0,
+        )
+        self.empty_icon = ctk.CTkLabel(
+            self.empty_state_frame,
+            text="AppList",
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            text_color=COLORS["accent_primary"],
+        )
+        self.empty_icon.pack(padx=28, pady=(24, 8))
+
+        self.empty_title = ctk.CTkLabel(
+            self.empty_state_frame,
+            text="No inventory yet",
+            font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"),
+            text_color=COLORS["text_primary"],
+        )
+        self.empty_title.pack(padx=28)
+
+        self.empty_body = ctk.CTkLabel(
+            self.empty_state_frame,
+            text="Run a scan to discover installed applications.",
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            text_color=COLORS["text_secondary"],
+            wraplength=420,
+            justify="center",
+        )
+        self.empty_body.pack(padx=28, pady=(8, 18))
+
+        self.empty_action = SecondaryButton(
+            self.empty_state_frame,
+            text="Scan System",
+            width=142,
+            command=self._start_scan,
+        )
+        self.empty_action.pack(padx=28, pady=(0, 24))
         
         # Context menu
-        self.context_menu = tk.Menu(self, tearoff=0, bg=COLORS["bg_card"], fg=COLORS["text_primary"])
+        self.context_menu = tk.Menu(
+            self,
+            tearoff=0,
+            bg=COLORS["bg_card"],
+            fg=COLORS["text_primary"],
+            activebackground=COLORS["bg_hover"],
+            activeforeground=COLORS["text_primary"],
+            disabledforeground=COLORS["text_muted"],
+        )
         self.context_menu.add_command(label="Copy Name", command=self._copy_name)
         self.context_menu.add_command(label="Copy Install Location", command=self._copy_location)
         self.context_menu.add_command(label="Copy Registry Key", command=self._copy_registry)
@@ -1603,43 +1813,122 @@ class AppList(ctk.CTk):
             self,
             fg_color=COLORS["bg_secondary"],
             corner_radius=0,
-            height=48,
+            height=52,
         )
         status_frame.pack(fill="x", side="bottom")
         status_frame.pack_propagate(False)
         
         inner = ctk.CTkFrame(status_frame, fg_color="transparent")
-        inner.pack(fill="both", expand=True, padx=32)
+        inner.pack(fill="both", expand=True, padx=30)
         
-        # Status message
+        self.status_dot = ctk.CTkLabel(
+            inner,
+            text="●",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["accent_success"],
+        )
+        self.status_dot.pack(side="left", pady=13, padx=(0, 10))
+
         self.status_label = ctk.CTkLabel(
             inner,
-            text="Ready. Click 'Scan System' to begin.",
+            text="Ready to scan",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color=COLORS["text_secondary"],
+        )
+        self.status_label.pack(side="left", pady=13)
+
+        self.count_label = ctk.CTkLabel(
+            inner,
+            text="No scan performed yet",
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color=COLORS["text_muted"],
         )
-        self.status_label.pack(side="left", pady=12)
+        self.count_label.pack(side="left", padx=(22, 0), pady=13)
+
+        self.progress_percent_label = ctk.CTkLabel(
+            inner,
+            text="0%",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color=COLORS["accent_primary"],
+        )
+        self.progress_percent_label.pack(side="right", pady=13)
         
-        # Progress bar
         self.progress_bar = ctk.CTkProgressBar(
             inner,
-            width=200,
+            width=260,
             height=6,
             fg_color=COLORS["bg_tertiary"],
             progress_color=COLORS["accent_primary"],
             corner_radius=3,
         )
-        self.progress_bar.pack(side="right", pady=12)
+        self.progress_bar.pack(side="right", padx=(12, 12), pady=13)
         self.progress_bar.set(0)
-        
-        # Showing count
-        self.count_label = ctk.CTkLabel(
+
+        progress_label = ctk.CTkLabel(
             inner,
-            text="",
+            text="Progress",
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color=COLORS["text_muted"],
         )
-        self.count_label.pack(side="right", padx=(0, 24), pady=12)
+        progress_label.pack(side="right", pady=13)
+
+    def _set_export_buttons_enabled(self, enabled: bool):
+        """Enable exports only when there is a meaningful filtered result set."""
+        state = "normal" if enabled else "disabled"
+        for button in (
+            self.export_txt_btn,
+            self.export_csv_btn,
+            self.export_md_btn,
+            self.export_json_btn,
+            self.export_winget_btn,
+        ):
+            button.configure(state=state)
+
+    def _set_status_tone(self, tone: str):
+        """Set a compact status indicator color."""
+        color_map = {
+            "idle": COLORS["accent_success"],
+            "progress": COLORS["accent_primary"],
+            "warning": COLORS["accent_warning"],
+            "error": COLORS["accent_error"],
+        }
+        self.status_dot.configure(text_color=color_map.get(tone, COLORS["text_muted"]))
+
+    def _show_empty_state(
+        self,
+        title: str,
+        body: str,
+        action_text: Optional[str] = None,
+        action_command: Optional[Any] = None,
+        tone: str = "idle",
+    ):
+        """Show the centered table overlay for empty, loading, or error states."""
+        self.empty_icon.configure(text="AppList", text_color=COLORS["accent_primary"])
+        self.empty_title.configure(text=title)
+        self.empty_body.configure(text=body)
+
+        if action_text and action_command:
+            self.empty_action.configure(text=action_text, command=action_command, state="normal")
+            if not self.empty_action.winfo_ismapped():
+                self.empty_action.pack(padx=28, pady=(0, 24))
+        else:
+            self.empty_action.pack_forget()
+
+        self._set_status_tone(tone)
+        self.empty_state_frame.place(relx=0.5, rely=0.52, anchor="center")
+        self.empty_state_frame.lift()
+
+    def _hide_empty_state(self):
+        """Hide the centered table overlay when the grid has rows."""
+        self.empty_state_frame.place_forget()
+
+    def _clear_filters(self):
+        """Reset all visible filters to their neutral states."""
+        self.search_var.set("")
+        self.filter_var.set("All Types")
+        self.source_filter_var.set("All Sources")
+        self.upgrade_filter_var.set("Any Upgrade State")
+        self._apply_filters()
     
     # ══════════════════════════════════════════════════════════════════════════
     # SCANNING LOGIC
@@ -1647,13 +1936,20 @@ class AppList(ctk.CTk):
     
     def _start_scan(self):
         """Start the scanning process in a background thread."""
+        self.is_scanning = True
+        self.scan_has_run = False
+        self._set_status_tone("progress")
         self.scan_button.configure(state="disabled")
         self.cancel_button.configure(state="normal")
-        self.export_txt_btn.configure(state="disabled")
-        self.export_csv_btn.configure(state="disabled")
-        self.export_md_btn.configure(state="disabled")
-        self.export_json_btn.configure(state="disabled")
-        self.export_winget_btn.configure(state="disabled")
+        self._set_export_buttons_enabled(False)
+        self.progress_bar.set(0)
+        self.progress_percent_label.configure(text="0%")
+        self.count_label.configure(text="Scanning all configured sources")
+        self._show_empty_state(
+            "Scanning system",
+            "Collecting registry, Store, Program Files, package-manager, Python, and winget details.",
+            tone="progress",
+        )
         
         # Clear existing data
         for item in self.tree.get_children():
@@ -1691,12 +1987,26 @@ class AppList(ctk.CTk):
         """Cancel the ongoing scan."""
         if self.scanner:
             self.scanner.cancel()
+        self.is_scanning = False
         self._update_status("Scan cancelled.")
         self.scan_button.configure(state="normal")
         self.cancel_button.configure(state="disabled")
+        self._set_export_buttons_enabled(bool(self.filtered_apps))
+        self._set_status_tone("warning")
+        if not self.filtered_apps:
+            self._show_empty_state(
+                "Scan cancelled",
+                "No inventory was captured. Run a fresh scan when you are ready.",
+                action_text="Scan System",
+                action_command=self._start_scan,
+                tone="warning",
+            )
     
     def _on_scan_complete(self, apps: List[Application]):
         """Handle scan completion."""
+        was_cancelled = bool(self.scanner and self.scanner._cancelled)
+        self.is_scanning = False
+        self.scan_has_run = True
         self.applications = apps
         self.filtered_apps = apps.copy()
         
@@ -1710,30 +2020,50 @@ class AppList(ctk.CTk):
         self.stats_store.set_value(str(store_count))
         self.stats_unregistered.set_value(str(other_count))
         
-        # Populate treeview
-        self._populate_treeview()
+        # Populate treeview through the current filters.
+        self._apply_filters()
         
         # Re-enable buttons
         self.scan_button.configure(state="normal")
         self.cancel_button.configure(state="disabled")
-        self.export_txt_btn.configure(state="normal")
-        self.export_csv_btn.configure(state="normal")
-        self.export_md_btn.configure(state="normal")
-        self.export_json_btn.configure(state="normal")
-        self.export_winget_btn.configure(state="normal")
+        self._set_export_buttons_enabled(bool(self.filtered_apps))
         
-        self._update_status(f"Scan complete. Found {len(apps)} applications.")
+        if was_cancelled:
+            self._update_status(f"Scan cancelled. Captured {len(apps)} applications before stopping.")
+            self._set_status_tone("warning")
+        else:
+            self.progress_bar.set(1)
+            self.progress_percent_label.configure(text="100%")
+            self._update_status(f"Scan complete. Found {len(apps)} applications.")
+            self._set_status_tone("idle")
     
     def _on_scan_error(self, error: str):
         """Handle scan error."""
+        self.is_scanning = False
         messagebox.showerror("Scan Error", f"An error occurred during scanning:\n{error}")
         self.scan_button.configure(state="normal")
         self.cancel_button.configure(state="disabled")
+        self._set_export_buttons_enabled(bool(self.filtered_apps))
+        self.progress_bar.set(0)
+        self.progress_percent_label.configure(text="0%")
+        self._set_status_tone("error")
+        self._show_empty_state(
+            "Scan did not complete",
+            "Review the error message, then run the scan again.",
+            action_text="Scan System",
+            action_command=self._start_scan,
+            tone="error",
+        )
         self._update_status("Scan failed. See error message.")
     
     def _update_progress(self, value: float, maximum: float = 100):
         """Update progress bar (thread-safe)."""
-        self.after(0, lambda: self.progress_bar.set(value / maximum))
+        ratio = 0 if maximum <= 0 else max(0, min(value / maximum, 1))
+        percent = int(round(ratio * 100))
+        self.after(0, lambda: (
+            self.progress_bar.set(ratio),
+            self.progress_percent_label.configure(text=f"{percent}%"),
+        ))
     
     def _update_status(self, status: str):
         """Update status message (thread-safe)."""
@@ -1754,10 +2084,13 @@ class AppList(ctk.CTk):
         for index, app in enumerate(self.filtered_apps):
             # Visual indicator for update available or ghost entry
             status = ""
+            row_tags = ()
             if app.ghost:
-                status = "⚠ Missing"
+                status = "Missing path"
+                row_tags = ("ghost",)
             elif app.upgrade_available:
                 status = app.upgrade_available
+                row_tags = ("update",)
 
             iid = f"app-{index}"
             self.tree_iid_to_index[iid] = index
@@ -1767,36 +2100,81 @@ class AppList(ctk.CTk):
                 app.publisher,
                 app.version,
                 app.install_date,
-                app.install_location,
-                app.uninstall_registry_key,
                 app.app_type,
+                app.source,
+                status,
+                app.winget_id,
                 app.estimated_size,
                 app.architecture,
-                app.winget_id,
-                status,
-            ))
+                app.install_location,
+                app.uninstall_registry_key,
+            ), tags=row_tags)
         
         # Update count
-        self.count_label.configure(text=f"Showing {len(self.filtered_apps)} of {len(self.applications)}")
+        if self.applications:
+            self.count_label.configure(text=f"Showing {len(self.filtered_apps)} of {len(self.applications)}")
+        elif self.scan_has_run:
+            self.count_label.configure(text="0 applications found")
+        else:
+            self.count_label.configure(text="No scan performed yet")
+
+        self._set_export_buttons_enabled(bool(self.filtered_apps) and not self.is_scanning)
+
+        if self.is_scanning:
+            self._show_empty_state(
+                "Scanning system",
+                "Collecting registry, Store, Program Files, package-manager, Python, and winget details.",
+                tone="progress",
+            )
+        elif not self.applications and self.scan_has_run:
+            self._show_empty_state(
+                "No applications found",
+                "The scan completed, but no matching applications were detected from the enabled sources.",
+                action_text="Scan Again",
+                action_command=self._start_scan,
+                tone="warning",
+            )
+        elif not self.applications:
+            self._show_empty_state(
+                "No inventory yet",
+                "Run a scan to discover installed desktop, Store, package-manager, and Python applications.",
+                action_text="Scan System",
+                action_command=self._start_scan,
+            )
+        elif not self.filtered_apps:
+            self._show_empty_state(
+                "No matches",
+                "Clear the search or filters to return to the full inventory.",
+                action_text="Clear filters",
+                action_command=self._clear_filters,
+                tone="warning",
+            )
+        else:
+            self._hide_empty_state()
     
     def _apply_filters(self):
         """Apply search and category filters."""
         search_text = self.search_var.get().lower()
         filter_type = self.filter_var.get()
+        source_filter = self.source_filter_var.get()
+        upgrade_filter = self.upgrade_filter_var.get()
         
         self.filtered_apps = []
         
         for app in self.applications:
             # Search filter
             if search_text:
-                searchable = f"{app.name} {app.publisher} {app.version}".lower()
+                searchable = (
+                    f"{app.name} {app.publisher} {app.version} {app.install_location} "
+                    f"{app.uninstall_registry_key} {app.source} {app.app_type} {app.winget_id}"
+                ).lower()
                 if search_text not in searchable:
                     continue
             
             # Category filter
-            if filter_type == "Desktop Apps" and app.app_type != "Desktop":
+            if filter_type == "Desktop" and app.app_type != "Desktop":
                 continue
-            elif filter_type == "Store Apps" and app.app_type != "Store App":
+            elif filter_type == "Store" and app.app_type != "Store App":
                 continue
             elif filter_type == "Unregistered" and app.app_type != "Desktop (Unregistered)":
                 continue
@@ -1805,6 +2183,31 @@ class AppList(ctk.CTk):
             elif filter_type == "Scoop" and app.app_type != "Scoop":
                 continue
             elif filter_type == "Python (pip)" and app.app_type != "Python Package":
+                continue
+
+            # Source filter
+            source_value = (app.source or "").lower()
+            if source_filter == "Registry" and source_value not in {"hklm64", "hklm32", "hkcu"}:
+                continue
+            elif source_filter == "Program Files" and source_value != "program files scan":
+                continue
+            elif source_filter == "Microsoft Store" and source_value != "microsoft store":
+                continue
+            elif source_filter == "Package Managers" and source_value not in {"chocolatey", "scoop"}:
+                continue
+            elif source_filter == "Python" and source_value != "python (pip)":
+                continue
+            elif source_filter == "Winget Matched" and not app.winget_id:
+                continue
+
+            # Upgrade/data-quality filter
+            if upgrade_filter == "Updates Available" and not app.upgrade_available:
+                continue
+            elif upgrade_filter == "Missing Install Path" and not app.ghost:
+                continue
+            elif upgrade_filter == "Winget Matched" and not app.winget_id:
+                continue
+            elif upgrade_filter == "No Winget Match" and app.winget_id:
                 continue
             
             self.filtered_apps.append(app)
@@ -1844,6 +2247,7 @@ class AppList(ctk.CTk):
             "install_location": "install_location",
             "registry_key": "uninstall_registry_key",
             "type": "app_type",
+            "source": "source",
             "size": "estimated_size",
             "architecture": "architecture",
             "winget_id": "winget_id",
@@ -1852,6 +2256,21 @@ class AppList(ctk.CTk):
         
         attr = attr_map.get(self.sort_column, "name")
         self.filtered_apps.sort(key=lambda x: getattr(x, attr, "").lower(), reverse=self.sort_reverse)
+
+    def _ensure_exportable_rows(self) -> bool:
+        """Return True when the current filtered view can be exported."""
+        if not self.applications:
+            self._update_status("Run a scan before exporting an inventory.")
+            messagebox.showwarning("No Inventory", "Run a scan before exporting an inventory.")
+            return False
+        if not self.filtered_apps:
+            self._update_status("No filtered rows available to export.")
+            messagebox.showwarning(
+                "No Matching Rows",
+                "The current search and filters have no rows to export. Clear filters or search again.",
+            )
+            return False
+        return True
     
     # ══════════════════════════════════════════════════════════════════════════
     # EXPORT FUNCTIONS
@@ -1859,8 +2278,7 @@ class AppList(ctk.CTk):
     
     def _export_txt(self):
         """Export applications to TXT file."""
-        if not self.applications:
-            messagebox.showwarning("No Data", "No applications to export. Please run a scan first.")
+        if not self._ensure_exportable_rows():
             return
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1878,15 +2296,16 @@ class AppList(ctk.CTk):
         
         try:
             write_txt_export(self.filtered_apps, filepath)
+            self._update_status(f"Exported {len(self.filtered_apps)} rows to TXT.")
             messagebox.showinfo("Export Complete", f"Successfully exported {len(self.filtered_apps)} applications to:\n{filepath}")
             
         except OSError as e:
+            self._update_status("TXT export failed.")
             messagebox.showerror("Export Error", f"Failed to export:\n{e}")
     
     def _export_csv(self):
         """Export applications to CSV file."""
-        if not self.applications:
-            messagebox.showwarning("No Data", "No applications to export. Please run a scan first.")
+        if not self._ensure_exportable_rows():
             return
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1904,15 +2323,16 @@ class AppList(ctk.CTk):
         
         try:
             write_csv_export(self.filtered_apps, filepath)
+            self._update_status(f"Exported {len(self.filtered_apps)} rows to CSV.")
             messagebox.showinfo("Export Complete", f"Successfully exported {len(self.filtered_apps)} applications to:\n{filepath}")
             
         except (OSError, csv.Error) as e:
+            self._update_status("CSV export failed.")
             messagebox.showerror("Export Error", f"Failed to export:\n{e}")
 
     def _export_markdown(self):
         """Export applications to a Markdown report grouped by type."""
-        if not self.applications:
-            messagebox.showwarning("No Data", "No applications to export. Please run a scan first.")
+        if not self._ensure_exportable_rows():
             return
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1927,15 +2347,16 @@ class AppList(ctk.CTk):
 
         try:
             write_markdown_export(self.filtered_apps, filepath)
+            self._update_status(f"Exported {len(self.filtered_apps)} rows to Markdown.")
             messagebox.showinfo("Export Complete", f"Successfully exported {len(self.filtered_apps)} applications to:\n{filepath}")
 
         except OSError as e:
+            self._update_status("Markdown export failed.")
             messagebox.showerror("Export Error", f"Failed to export:\n{e}")
 
     def _export_json(self):
         """Export applications to AppList JSON (full schema, round-trippable)."""
-        if not self.applications:
-            messagebox.showwarning("No Data", "No applications to export. Please run a scan first.")
+        if not self._ensure_exportable_rows():
             return
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1950,9 +2371,11 @@ class AppList(ctk.CTk):
 
         try:
             write_json_export(self.filtered_apps, filepath)
+            self._update_status(f"Exported {len(self.filtered_apps)} rows to JSON.")
             messagebox.showinfo("Export Complete", f"Successfully exported {len(self.filtered_apps)} applications to:\n{filepath}")
 
         except (OSError, TypeError, ValueError) as e:
+            self._update_status("JSON export failed.")
             messagebox.showerror("Export Error", f"Failed to export:\n{e}")
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -1961,12 +2384,12 @@ class AppList(ctk.CTk):
 
     def _export_winget(self):
         """Export apps with winget IDs as a winget import-compatible JSON file."""
-        if not self.applications:
-            messagebox.showwarning("No Data", "No applications to export. Please run a scan first.")
+        if not self._ensure_exportable_rows():
             return
 
         winget_apps = [a for a in self.filtered_apps if a.winget_id]
         if not winget_apps:
+            self._update_status("No winget package IDs in the current filtered view.")
             messagebox.showwarning(
                 "No Winget IDs",
                 "None of the scanned applications could be matched to a winget package ID.\n\n"
@@ -1986,12 +2409,14 @@ class AppList(ctk.CTk):
 
         try:
             exported_count = write_winget_export(self.filtered_apps, filepath)
+            self._update_status(f"Exported {exported_count} winget packages.")
             messagebox.showinfo(
                 "Export Complete",
                 f"Exported {exported_count} matched packages to:\n{filepath}\n\n"
                 f"To restore, run:\n  winget import -i \"{filepath}\"",
             )
         except (OSError, TypeError, ValueError) as e:
+            self._update_status("Winget export failed.")
             messagebox.showerror("Export Error", f"Failed to export:\n{e}")
 
     def _lookup_winget(self):
@@ -2006,6 +2431,7 @@ class AppList(ctk.CTk):
             query = app.name.replace(" ", "+")
             url = f"https://winget.run/?q={query}"
         webbrowser.open(url)
+        self._update_status(f"Opened winget lookup for {app.name}.")
 
     def _uninstall_app(self):
         """Uninstall the selected application using its uninstall string."""
@@ -2052,6 +2478,7 @@ class AppList(ctk.CTk):
                 shell=False,
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
+            self._update_status(f"Uninstall command launched for {app.name}.")
             messagebox.showinfo("Uninstall", f"Uninstall command for {app.name} executed.\nPlease complete the uninstall wizard.")
         except (OSError, ValueError, subprocess.SubprocessError) as e:
             messagebox.showerror("Uninstall Error", f"Failed to execute uninstall:\n{e}")
@@ -2061,7 +2488,23 @@ class AppList(ctk.CTk):
         item = self.tree.identify_row(event.y)
         if item:
             self.tree.selection_set(item)
+            self._sync_context_menu_state(self._get_selected_app())
             self.context_menu.post(event.x_root, event.y_root)
+
+    def _sync_context_menu_state(self, app: Optional[Application]):
+        """Disable context actions that are not valid for the selected row."""
+        if not app:
+            return
+        has_location = bool(app.install_location and os.path.exists(app.install_location))
+        has_registry = bool(app.uninstall_registry_key)
+        has_uninstall = bool(app.uninstall_command)
+
+        self.context_menu.entryconfig(1, state="normal" if app.install_location else "disabled")
+        self.context_menu.entryconfig(2, state="normal" if has_registry else "disabled")
+        self.context_menu.entryconfig(3, state="normal" if has_uninstall else "disabled")
+        self.context_menu.entryconfig(5, state="normal" if has_location else "disabled")
+        self.context_menu.entryconfig(6, state="normal" if has_registry else "disabled")
+        self.context_menu.entryconfig(9, state="normal" if has_uninstall else "disabled")
     
     def _get_selected_app(self) -> Optional[Application]:
         """Get the currently selected application."""
@@ -2079,28 +2522,32 @@ class AppList(ctk.CTk):
         """Copy application name to clipboard."""
         app = self._get_selected_app()
         if app:
-            self.clipboard_clear()
-            self.clipboard_append(app.name)
+            self._copy_to_clipboard(app.name, "Application name")
     
     def _copy_location(self):
         """Copy install location to clipboard."""
         app = self._get_selected_app()
         if app and app.install_location:
-            self.clipboard_clear()
-            self.clipboard_append(app.install_location)
+            self._copy_to_clipboard(app.install_location, "Install location")
     
     def _copy_registry(self):
         """Copy registry key to clipboard."""
         app = self._get_selected_app()
         if app and app.uninstall_registry_key:
-            self.clipboard_clear()
-            self.clipboard_append(app.uninstall_registry_key)
+            self._copy_to_clipboard(app.uninstall_registry_key, "Registry key")
+
+    def _copy_to_clipboard(self, value: str, label: str):
+        """Copy a value and reflect the action in the status strip."""
+        self.clipboard_clear()
+        self.clipboard_append(value)
+        self._update_status(f"{label} copied to clipboard.")
     
     def _open_location(self):
         """Open install location in Explorer."""
         app = self._get_selected_app()
         if app and app.install_location and os.path.exists(app.install_location):
             os.startfile(app.install_location)
+            self._update_status(f"Opened install location for {app.name}.")
         else:
             messagebox.showinfo("Not Available", "Install location not available or does not exist.")
 
@@ -2108,8 +2555,7 @@ class AppList(ctk.CTk):
         """Copy uninstall command to clipboard."""
         app = self._get_selected_app()
         if app and app.uninstall_command:
-            self.clipboard_clear()
-            self.clipboard_append(app.uninstall_command)
+            self._copy_to_clipboard(app.uninstall_command, "Uninstall command")
         else:
             messagebox.showinfo("Not Available", "No uninstall command available for this application.")
 
@@ -2128,9 +2574,11 @@ class AppList(ctk.CTk):
             ) as key:
                 winreg.SetValueEx(key, "LastKey", 0, winreg.REG_SZ, reg_key)
             subprocess.Popen(["regedit.exe"], creationflags=subprocess.CREATE_NO_WINDOW)
+            self._update_status(f"Opened registry key for {app.name}.")
         except (OSError, PermissionError, subprocess.SubprocessError):
             self.clipboard_clear()
             self.clipboard_append(reg_key)
+            self._update_status("Registry key copied to clipboard.")
             messagebox.showinfo(
                 "Registry Key Copied",
                 f"Could not open Regedit automatically.\n\n"

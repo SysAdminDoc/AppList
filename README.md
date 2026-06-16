@@ -1,6 +1,6 @@
 # AppList
 
-![Version](https://img.shields.io/badge/version-v1.4.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
+![Version](https://img.shields.io/badge/version-v1.4.1-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
 
 A tool for scanning, cataloging, and exporting all installed applications on your Windows system. Perfect for system migrations, documentation, and reinstallation planning.
 
@@ -37,11 +37,12 @@ A tool for scanning, cataloging, and exporting all installed applications on you
 - Dark theme with professional aesthetics
 - Dark Windows title bar integration
 - Real-time progress tracking
-- Statistics dashboard with card widgets
-- Sortable columns (click headers) — Name, Publisher, Version, Date, Location, Registry Key, Type, Size, Arch, Winget ID
-- Live search filtering
-- Category filtering (Desktop/Store/Unregistered)
-- Context menu with quick actions
+- Compact statistics dashboard with clearer totals and source context
+- Sortable columns (click headers) — Application, Publisher, Version, Installed, Type, Source, Upgrade, Winget ID, Size, Arch, Location, Registry Key
+- Live search across name, publisher, version, source, type, paths, and Winget ID
+- Type, source, and upgrade/data-quality filters
+- First-run, scanning, no-match, error, and empty-result states
+- Context menu with quick actions that disable when unavailable
 
 ### Export Options
 - **TXT Export** - Formatted report with full details
@@ -74,7 +75,7 @@ Or double-click `AppList.py` in Windows Explorer.
 1. **Launch** the application
 2. Click **"Scan System"** to begin comprehensive scanning
 3. Use the **search bar** to find specific applications
-4. Use the **filter dropdown** to show only certain types
+4. Use the **type, source, and upgrade filters** to narrow the inventory
 5. **Click column headers** to sort
 6. **Right-click** any item for context menu options
 7. **Double-click** to open the install location
@@ -153,4 +154,4 @@ MIT License - Free for personal and commercial use.
 
 ---
 
-*AppList v1.4.0*
+*AppList v1.4.1*
