@@ -9,7 +9,7 @@
 ╚═══════════════════════════════════════════════════════════════════════════════╝
 
 Author: Matt
-Version: 1.0.0
+Version: 1.3.1
 Purpose: Pre-reinstall application inventory for Windows migration
 """
 
@@ -34,22 +34,22 @@ def ensure_dependencies():
             missing.append(pip_name)
     
     if missing:
-        print("╔════════════════════════════════════════════════════════════════╗")
-        print("║               APPLIST - First Run Setup                        ║")
-        print("╠════════════════════════════════════════════════════════════════╣")
-        print("║  Installing required dependencies, please wait...              ║")
-        print("╚════════════════════════════════════════════════════════════════╝")
+        print("+----------------------------------------------------------------+")
+        print("|               APPLIST - First Run Setup                       |")
+        print("+----------------------------------------------------------------+")
+        print("|  Installing required dependencies, please wait...              |")
+        print("+----------------------------------------------------------------+")
         print()
         
         for package in missing:
-            print(f"  → Installing {package}...")
+            print(f"  - Installing {package}...")
             try:
                 subprocess.check_call(
                     [sys.executable, "-m", "pip", "install", package, "-q"],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
-                print(f"    ✓ {package} installed successfully")
+                print(f"    OK {package} installed successfully")
             except subprocess.CalledProcessError:
                 # Try with --user flag if regular install fails
                 try:
@@ -58,9 +58,9 @@ def ensure_dependencies():
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                     )
-                    print(f"    ✓ {package} installed successfully (user mode)")
+                    print(f"    OK {package} installed successfully (user mode)")
                 except subprocess.CalledProcessError as e:
-                    print(f"    ✗ Failed to install {package}")
+                    print(f"    ERROR Failed to install {package}")
                     print(f"      Please run: pip install {package}")
                     sys.exit(1)
         
@@ -82,6 +82,7 @@ import os
 import sys
 import threading
 import re
+import shlex
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple, Any
@@ -94,7 +95,7 @@ import ctypes
 # ══════════════════════════════════════════════════════════════════════════════
 
 APP_NAME = "AppList"
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.3.1"
 APP_SUBTITLE = "Windows Application Inventory Scanner"
 
 # Premium Dark Theme Colors
@@ -126,6 +127,51 @@ REGISTRY_PATHS = [
     (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall", "HKLM32"),
     (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", "HKCU"),
 ]
+
+SHELL_HOST_EXECUTABLES = {
+    "cmd",
+    "cmd.exe",
+    "powershell",
+    "powershell.exe",
+    "pwsh",
+    "pwsh.exe",
+    "wscript",
+    "wscript.exe",
+    "cscript",
+    "cscript.exe",
+}
+
+
+def split_windows_command_line(command_line: str) -> List[str]:
+    """Split a Windows command line without invoking a command shell."""
+    expanded = os.path.expandvars(command_line.strip())
+    if not expanded:
+        return []
+
+    if not hasattr(ctypes, "windll"):
+        return shlex.split(expanded, posix=False)
+
+    argc = ctypes.c_int()
+    shell32 = ctypes.windll.shell32
+    shell32.CommandLineToArgvW.argtypes = [
+        ctypes.c_wchar_p,
+        ctypes.POINTER(ctypes.c_int),
+    ]
+    shell32.CommandLineToArgvW.restype = ctypes.POINTER(ctypes.c_wchar_p)
+
+    argv = shell32.CommandLineToArgvW(expanded, ctypes.byref(argc))
+    if not argv:
+        raise ValueError("Unable to parse uninstall command.")
+
+    try:
+        return [argv[i] for i in range(argc.value)]
+    finally:
+        ctypes.windll.kernel32.LocalFree(ctypes.cast(argv, ctypes.c_void_p))
+
+
+def is_shell_host_command(executable: str) -> bool:
+    """Return True when a command would delegate execution to a script shell."""
+    return os.path.basename(executable).lower() in SHELL_HOST_EXECUTABLES
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DATA MODELS
@@ -194,6 +240,9 @@ class ApplicationScanner:
     def _update_status(self, status: str):
         if self.status_callback:
             self.status_callback(status)
+
+    def _log_warning(self, message: str):
+        print(f"Warning: {message}", file=sys.stderr)
     
     def _normalize_name(self, name: str) -> str:
         """Normalize application name for deduplication."""
@@ -218,7 +267,7 @@ class ApplicationScanner:
             if len(date_str) == 8 and date_str.isdigit():
                 return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
             return date_str
-        except:
+        except (TypeError, ValueError):
             return date_str
     
     def _get_registry_value(self, key, value_name: str, default: str = "") -> str:
@@ -311,6 +360,7 @@ class ApplicationScanner:
                             continue
                             
             except (FileNotFoundError, OSError, PermissionError) as e:
+                self._log_warning(f"Registry source {source_name} could not be scanned: {e}")
                 continue
         
         return apps
@@ -385,8 +435,9 @@ class ApplicationScanner:
                     )
                     apps.append(app)
                     
-        except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception) as e:
-            pass
+        except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.SubprocessError,
+                json.JSONDecodeError, OSError, TypeError) as e:
+            self._log_warning(f"Microsoft Store scan failed: {e}")
         
         return apps
     
@@ -565,7 +616,8 @@ class ApplicationScanner:
 
         try:
             pkg_dirs = [d for d in os.listdir(choco_lib) if os.path.isdir(os.path.join(choco_lib, d))]
-        except OSError:
+        except OSError as e:
+            self._log_warning(f"Chocolatey package directory could not be listed: {e}")
             return apps
 
         for pkg_dir in pkg_dirs:
@@ -581,7 +633,11 @@ class ApplicationScanner:
             publisher = ""
 
             # Parse .nuspec for metadata
-            nuspec_files = [f for f in os.listdir(pkg_path) if f.endswith(".nuspec")]
+            try:
+                nuspec_files = [f for f in os.listdir(pkg_path) if f.endswith(".nuspec")]
+            except OSError as e:
+                self._log_warning(f"Could not list Chocolatey metadata for {pkg_dir}: {e}")
+                nuspec_files = []
             if nuspec_files:
                 nuspec_path = os.path.join(pkg_path, nuspec_files[0])
                 try:
@@ -601,8 +657,8 @@ class ApplicationScanner:
                             version = ver_el.text.strip()
                         if auth_el is not None and auth_el.text:
                             publisher = auth_el.text.strip()
-                except Exception:
-                    pass
+                except (OSError, ET.ParseError, AttributeError) as e:
+                    self._log_warning(f"Could not read Chocolatey metadata for {pkg_dir}: {e}")
 
             self.seen_apps.add(norm)
             apps.append(Application(
@@ -634,7 +690,8 @@ class ApplicationScanner:
         try:
             app_dirs = [d for d in os.listdir(scoop_apps)
                         if os.path.isdir(os.path.join(scoop_apps, d)) and d != "scoop"]
-        except OSError:
+        except OSError as e:
+            self._log_warning(f"Scoop app directory could not be listed: {e}")
             return apps
 
         for app_dir in app_dirs:
@@ -658,8 +715,8 @@ class ApplicationScanner:
                         manifest = json.load(f)
                     version = str(manifest.get("version", "")).strip()
                     publisher = str(manifest.get("homepage", "")).strip()
-                except Exception:
-                    pass
+                except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
+                    self._log_warning(f"Could not read Scoop manifest for {app_dir}: {e}")
 
             # Fallback: version folder name
             if not version:
@@ -668,8 +725,8 @@ class ApplicationScanner:
                                 if os.path.isdir(os.path.join(app_path, d)) and d != "current"]
                     if versions:
                         version = sorted(versions)[-1]
-                except OSError:
-                    pass
+                except OSError as e:
+                    self._log_warning(f"Could not list Scoop versions for {app_dir}: {e}")
 
             self.seen_apps.add(norm)
             apps.append(Application(
@@ -714,8 +771,9 @@ class ApplicationScanner:
                     publisher="",
                     app_type="Python Package",
                 ))
-        except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError, Exception):
-            pass
+        except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.SubprocessError,
+                json.JSONDecodeError, OSError) as e:
+            self._log_warning(f"pip package scan failed: {e}")
 
         return apps
 
@@ -757,8 +815,8 @@ class ApplicationScanner:
                 if name and winget_id:
                     winget_map[self._normalize_name(name)] = winget_id
 
-        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
-            pass
+        except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.SubprocessError, OSError) as e:
+            self._log_warning(f"winget list cross-reference failed: {e}")
 
         return winget_map
 
@@ -799,7 +857,7 @@ class ApplicationScanner:
                 )
                 if name or winget_id:
                     packages.append({"Name": name, "Id": winget_id, "Version": version})
-            except Exception:
+            except (IndexError, ValueError):
                 continue
 
         return packages
@@ -826,8 +884,8 @@ class ApplicationScanner:
                             upgrade_map[pkg_id] = new_ver
                 except json.JSONDecodeError:
                     pass
-        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
-            pass
+        except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.SubprocessError, OSError) as e:
+            self._log_warning(f"winget upgrade cross-reference failed: {e}")
         return upgrade_map
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -946,6 +1004,7 @@ class AppList(ctk.CTk):
         self.scanner = None
         self.applications: List[Application] = []
         self.filtered_apps: List[Application] = []
+        self.tree_iid_to_index: Dict[str, int] = {}
         self.scan_thread = None
         self.sort_column = "name"
         self.sort_reverse = False
@@ -973,7 +1032,7 @@ class AppList(ctk.CTk):
                 hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE,
                 ctypes.byref(ctypes.c_int(1)), ctypes.sizeof(ctypes.c_int)
             )
-        except:
+        except (AttributeError, OSError, ValueError, tk.TclError):
             pass
     
     def _configure_treeview_style(self):
@@ -1377,6 +1436,7 @@ class AppList(ctk.CTk):
             self.tree.delete(item)
         self.applications = []
         self.filtered_apps = []
+        self.tree_iid_to_index = {}
         
         # Reset stats
         self.stats_total.set_value("...")
@@ -1399,7 +1459,8 @@ class AppList(ctk.CTk):
         try:
             apps = self.scanner.scan_all()
             self.after(0, lambda: self._on_scan_complete(apps))
-        except Exception as e:
+        except (OSError, PermissionError, subprocess.SubprocessError,
+                json.JSONDecodeError, ValueError) as e:
             self.after(0, lambda: self._on_scan_error(str(e)))
     
     def _cancel_scan(self):
@@ -1463,17 +1524,21 @@ class AppList(ctk.CTk):
         # Clear existing
         for item in self.tree.get_children():
             self.tree.delete(item)
+        self.tree_iid_to_index = {}
         
         # Add filtered apps
-        for app in self.filtered_apps:
+        for index, app in enumerate(self.filtered_apps):
             # Visual indicator for update available or ghost entry
             status = ""
             if app.ghost:
                 status = "⚠ Missing"
             elif app.upgrade_available:
                 status = app.upgrade_available
+
+            iid = f"app-{index}"
+            self.tree_iid_to_index[iid] = index
             
-            self.tree.insert("", "end", values=(
+            self.tree.insert("", "end", iid=iid, values=(
                 app.name,
                 app.publisher,
                 app.version,
@@ -1622,7 +1687,7 @@ class AppList(ctk.CTk):
             
             messagebox.showinfo("Export Complete", f"Successfully exported {len(self.filtered_apps)} applications to:\n{filepath}")
             
-        except Exception as e:
+        except OSError as e:
             messagebox.showerror("Export Error", f"Failed to export:\n{e}")
     
     def _export_csv(self):
@@ -1671,7 +1736,7 @@ class AppList(ctk.CTk):
             
             messagebox.showinfo("Export Complete", f"Successfully exported {len(self.filtered_apps)} applications to:\n{filepath}")
             
-        except Exception as e:
+        except (OSError, csv.Error) as e:
             messagebox.showerror("Export Error", f"Failed to export:\n{e}")
 
     def _export_markdown(self):
@@ -1694,9 +1759,32 @@ class AppList(ctk.CTk):
             hostname = os.environ.get("COMPUTERNAME", "Unknown")
             username = os.environ.get("USERNAME", "Unknown")
 
-            desktop = [a for a in self.filtered_apps if a.app_type == "Desktop"]
-            store   = [a for a in self.filtered_apps if a.app_type == "Store App"]
-            unreg   = [a for a in self.filtered_apps if a.app_type == "Desktop (Unregistered)"]
+            group_titles = {
+                "Desktop": "Desktop Apps",
+                "Store App": "Store / UWP Apps",
+                "Desktop (Unregistered)": "Unregistered (Program Files)",
+                "Chocolatey": "Chocolatey Packages",
+                "Scoop": "Scoop Apps",
+                "Python Package": "Python Packages (pip)",
+            }
+            group_order = [
+                "Desktop",
+                "Store App",
+                "Desktop (Unregistered)",
+                "Chocolatey",
+                "Scoop",
+                "Python Package",
+            ]
+            groups: Dict[str, List[Application]] = {}
+            for app in self.filtered_apps:
+                groups.setdefault(app.app_type or "Unknown", []).append(app)
+
+            ordered_groups = [
+                app_type for app_type in group_order if app_type in groups
+            ]
+            ordered_groups.extend(
+                sorted(app_type for app_type in groups if app_type not in group_titles)
+            )
 
             def _md_row(i: int, app: Application) -> str:
                 name = app.name.replace("|", "\\|")
@@ -1711,11 +1799,9 @@ class AppList(ctk.CTk):
                 f.write(f"**Total:** {len(self.filtered_apps)} applications  \n\n")
                 f.write("---\n\n")
 
-                for group_name, group in [
-                    ("Desktop Apps", desktop),
-                    ("Store / UWP Apps", store),
-                    ("Unregistered (Program Files)", unreg),
-                ]:
+                for app_type in ordered_groups:
+                    group = groups[app_type]
+                    group_name = group_titles.get(app_type, app_type)
                     if not group:
                         continue
                     f.write(f"## {group_name} ({len(group)})\n\n")
@@ -1727,7 +1813,7 @@ class AppList(ctk.CTk):
 
             messagebox.showinfo("Export Complete", f"Successfully exported {len(self.filtered_apps)} applications to:\n{filepath}")
 
-        except Exception as e:
+        except OSError as e:
             messagebox.showerror("Export Error", f"Failed to export:\n{e}")
 
     def _export_json(self):
@@ -1760,7 +1846,7 @@ class AppList(ctk.CTk):
 
             messagebox.showinfo("Export Complete", f"Successfully exported {len(self.filtered_apps)} applications to:\n{filepath}")
 
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
             messagebox.showerror("Export Error", f"Failed to export:\n{e}")
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -1826,7 +1912,7 @@ class AppList(ctk.CTk):
                 f"Exported {len(winget_apps)} matched packages to:\n{filepath}\n\n"
                 f"To restore, run:\n  winget import -i \"{filepath}\"",
             )
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
             messagebox.showerror("Export Error", f"Failed to export:\n{e}")
 
     def _lookup_winget(self):
@@ -1863,13 +1949,32 @@ class AppList(ctk.CTk):
             return
         
         try:
-            subprocess.run(
-                uninstall_str,
-                shell=True,
+            if app.app_type == "Store App" and uninstall_str.startswith("Remove-AppxPackage "):
+                package_name = uninstall_str[len("Remove-AppxPackage "):].strip()
+                command = [
+                    "powershell",
+                    "-NoProfile",
+                    "-Command",
+                    "Remove-AppxPackage -Package $args[0]",
+                    package_name,
+                ]
+            else:
+                command = split_windows_command_line(uninstall_str)
+                if not command:
+                    raise ValueError("No executable found in uninstall command.")
+                if is_shell_host_command(command[0]):
+                    raise ValueError(
+                        "Shell-based uninstall commands are not executed automatically. "
+                        "Copy the uninstall command and review it before running manually."
+                    )
+
+            subprocess.Popen(
+                command,
+                shell=False,
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
             messagebox.showinfo("Uninstall", f"Uninstall command for {app.name} executed.\nPlease complete the uninstall wizard.")
-        except Exception as e:
+        except (OSError, ValueError, subprocess.SubprocessError) as e:
             messagebox.showerror("Uninstall Error", f"Failed to execute uninstall:\n{e}")
 
     def _show_context_menu(self, event):
@@ -1885,12 +1990,10 @@ class AppList(ctk.CTk):
         if not selection:
             return None
         
-        item = self.tree.item(selection[0])
-        name = item['values'][0]
-        
-        for app in self.filtered_apps:
-            if app.name == name:
-                return app
+        index = self.tree_iid_to_index.get(selection[0])
+        if index is not None and 0 <= index < len(self.filtered_apps):
+            return self.filtered_apps[index]
+
         return None
     
     def _copy_name(self):
@@ -1946,7 +2049,7 @@ class AppList(ctk.CTk):
             ) as key:
                 winreg.SetValueEx(key, "LastKey", 0, winreg.REG_SZ, reg_key)
             subprocess.Popen(["regedit.exe"], creationflags=subprocess.CREATE_NO_WINDOW)
-        except Exception:
+        except (OSError, PermissionError, subprocess.SubprocessError):
             self.clipboard_clear()
             self.clipboard_append(reg_key)
             messagebox.showinfo(
@@ -1974,10 +2077,10 @@ def main():
     # Set DPI awareness for sharp rendering on high-DPI displays
     try:
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
-    except:
+    except (AttributeError, OSError, ValueError):
         try:
             ctypes.windll.user32.SetProcessDPIAware()
-        except:
+        except (AttributeError, OSError, ValueError):
             pass
     
     app = AppList()
