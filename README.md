@@ -1,6 +1,6 @@
 # AppList
 
-![Version](https://img.shields.io/badge/version-v1.3.1-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
+![Version](https://img.shields.io/badge/version-v1.4.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
 
 A tool for scanning, cataloging, and exporting all installed applications on your Windows system. Perfect for system migrations, documentation, and reinstallation planning.
 
@@ -80,6 +80,18 @@ Or double-click `AppList.py` in Windows Explorer.
 7. **Double-click** to open the install location
 8. **Export** your list as TXT, CSV, Markdown, or JSON
 
+### CLI Mode
+
+Run a headless scan and export without opening the GUI:
+
+```bash
+python AppList.py --export csv --output apps.csv --include store,winget
+```
+
+Supported export formats: `txt`, `csv`, `md`, `markdown`, `json`, `winget`.
+
+Supported source filters: `all`, `desktop`, `registry`, `store`, `program_files`, `chocolatey`, `scoop`, `pip`, `winget`.
+
 ---
 
 ## Export Formats
@@ -141,4 +153,4 @@ MIT License - Free for personal and commercial use.
 
 ---
 
-*AppList v1.3.1*
+*AppList v1.4.0*

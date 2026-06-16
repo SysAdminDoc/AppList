@@ -9,7 +9,7 @@
 ╚═══════════════════════════════════════════════════════════════════════════════╝
 
 Author: Matt
-Version: 1.3.1
+Version: 1.4.0
 Purpose: Pre-reinstall application inventory for Windows migration
 """
 
@@ -19,6 +19,7 @@ Purpose: Pre-reinstall application inventory for Windows migration
 
 import subprocess
 import sys
+import argparse
 
 def ensure_dependencies():
     """Automatically install required packages if missing."""
@@ -95,7 +96,7 @@ import ctypes
 # ══════════════════════════════════════════════════════════════════════════════
 
 APP_NAME = "AppList"
-APP_VERSION = "1.3.1"
+APP_VERSION = "1.4.0"
 APP_SUBTITLE = "Windows Application Inventory Scanner"
 
 # Premium Dark Theme Colors
@@ -141,6 +142,35 @@ SHELL_HOST_EXECUTABLES = {
     "cscript.exe",
 }
 
+CANONICAL_SCAN_SOURCES = {
+    "registry",
+    "store",
+    "program_files",
+    "chocolatey",
+    "scoop",
+    "pip",
+    "winget",
+}
+
+SCAN_SOURCE_ALIASES = {
+    "all": CANONICAL_SCAN_SOURCES,
+    "desktop": {"registry", "program_files"},
+    "registry": {"registry"},
+    "store": {"store"},
+    "uwp": {"store"},
+    "appx": {"store"},
+    "program_files": {"program_files"},
+    "program-files": {"program_files"},
+    "programfiles": {"program_files"},
+    "unregistered": {"program_files"},
+    "chocolatey": {"chocolatey"},
+    "choco": {"chocolatey"},
+    "scoop": {"scoop"},
+    "pip": {"pip"},
+    "python": {"pip"},
+    "winget": {"winget"},
+}
+
 
 def split_windows_command_line(command_line: str) -> List[str]:
     """Split a Windows command line without invoking a command shell."""
@@ -172,6 +202,24 @@ def split_windows_command_line(command_line: str) -> List[str]:
 def is_shell_host_command(executable: str) -> bool:
     """Return True when a command would delegate execution to a script shell."""
     return os.path.basename(executable).lower() in SHELL_HOST_EXECUTABLES
+
+
+def parse_include_sources(raw_sources: str) -> set:
+    """Parse comma-separated CLI source filters into canonical scanner sources."""
+    if not raw_sources:
+        return set(CANONICAL_SCAN_SOURCES)
+
+    selected = set()
+    for raw_part in raw_sources.split(","):
+        source = raw_part.strip().lower()
+        if not source:
+            continue
+        if source not in SCAN_SOURCE_ALIASES:
+            allowed = ", ".join(sorted(SCAN_SOURCE_ALIASES))
+            raise ValueError(f"Unknown source '{source}'. Use one of: {allowed}")
+        selected.update(SCAN_SOURCE_ALIASES[source])
+
+    return selected or set(CANONICAL_SCAN_SOURCES)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DATA MODELS
@@ -214,6 +262,172 @@ class Application:
             self.winget_id,
             self.upgrade_available,
         ]
+
+
+def write_txt_export(apps: List[Application], filepath: str):
+    """Write applications to a TXT report."""
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write("=" * 100 + "\n")
+        f.write(f"  {APP_NAME} - Application Inventory Report\n")
+        f.write(f"  Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"  Total Applications: {len(apps)}\n")
+        f.write("=" * 100 + "\n\n")
+
+        for i, app in enumerate(apps, 1):
+            f.write(f"[{i:04d}] {app.name}\n")
+            f.write("-" * 80 + "\n")
+            if app.publisher:
+                f.write(f"       Publisher:        {app.publisher}\n")
+            if app.version:
+                f.write(f"       Version:          {app.version}\n")
+            if app.install_date:
+                f.write(f"       Install Date:     {app.install_date}\n")
+            if app.install_location:
+                f.write(f"       Install Location: {app.install_location}\n")
+            if app.uninstall_registry_key:
+                f.write(f"       Registry Key:     {app.uninstall_registry_key}\n")
+            if app.uninstall_command:
+                f.write(f"       Uninstall Cmd:    {app.uninstall_command}\n")
+            if app.estimated_size:
+                f.write(f"       Size:             {app.estimated_size}\n")
+            f.write(f"       Type:             {app.app_type}\n")
+            f.write(f"       Source:           {app.source}\n")
+            f.write("\n")
+
+        f.write("=" * 100 + "\n")
+        f.write("  End of Report\n")
+        f.write("=" * 100 + "\n")
+
+
+def write_csv_export(apps: List[Application], filepath: str):
+    """Write applications to CSV."""
+    with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "Application Name",
+            "Publisher",
+            "Version",
+            "Install Date",
+            "Install Location",
+            "Registry Key",
+            "Uninstall Command",
+            "Estimated Size",
+            "Source",
+            "Architecture",
+            "Type",
+            "Winget ID",
+            "Update Available",
+        ])
+        for app in apps:
+            writer.writerow(app.to_export_row())
+
+
+def get_markdown_groups(apps: List[Application]) -> List[Tuple[str, List[Application]]]:
+    """Group applications for Markdown export without dropping unknown types."""
+    group_titles = {
+        "Desktop": "Desktop Apps",
+        "Store App": "Store / UWP Apps",
+        "Desktop (Unregistered)": "Unregistered (Program Files)",
+        "Chocolatey": "Chocolatey Packages",
+        "Scoop": "Scoop Apps",
+        "Python Package": "Python Packages (pip)",
+    }
+    group_order = [
+        "Desktop",
+        "Store App",
+        "Desktop (Unregistered)",
+        "Chocolatey",
+        "Scoop",
+        "Python Package",
+    ]
+    groups: Dict[str, List[Application]] = {}
+    for app in apps:
+        groups.setdefault(app.app_type or "Unknown", []).append(app)
+
+    ordered_types = [app_type for app_type in group_order if app_type in groups]
+    ordered_types.extend(
+        sorted(app_type for app_type in groups if app_type not in group_titles)
+    )
+    return [(group_titles.get(app_type, app_type), groups[app_type]) for app_type in ordered_types]
+
+
+def write_markdown_export(apps: List[Application], filepath: str):
+    """Write applications to a Markdown report grouped by type."""
+    hostname = os.environ.get("COMPUTERNAME", "Unknown")
+    username = os.environ.get("USERNAME", "Unknown")
+
+    def _md_row(i: int, app: Application) -> str:
+        name = app.name.replace("|", "\\|")
+        pub = app.publisher.replace("|", "\\|")
+        wid = app.winget_id if app.winget_id else ""
+        return f"| {i} | {name} | {pub} | {app.version} | {app.install_date} | {app.estimated_size} | {wid} |\n"
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(f"# Application Inventory — {hostname}\n\n")
+        f.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  \n")
+        f.write(f"**Machine:** `{hostname}` / `{username}`  \n")
+        f.write(f"**Total:** {len(apps)} applications  \n\n")
+        f.write("---\n\n")
+
+        for group_name, group in get_markdown_groups(apps):
+            if not group:
+                continue
+            f.write(f"## {group_name} ({len(group)})\n\n")
+            f.write("| # | Name | Publisher | Version | Install Date | Size | Winget ID |\n")
+            f.write("|---|------|-----------|---------|--------------|------|-----------|\n")
+            for i, app in enumerate(group, 1):
+                f.write(_md_row(i, app))
+            f.write("\n")
+
+
+def write_json_export(apps: List[Application], filepath: str):
+    """Write applications to AppList JSON."""
+    hostname = os.environ.get("COMPUTERNAME", "Unknown")
+    export_data = {
+        "schema": f"AppList/{APP_VERSION}",
+        "generated": datetime.now().isoformat(),
+        "machine": hostname,
+        "total": len(apps),
+        "applications": [app.to_dict() for app in apps],
+    }
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(export_data, f, indent=2, ensure_ascii=False)
+
+
+def write_winget_export(apps: List[Application], filepath: str) -> int:
+    """Write matched apps as winget import-compatible JSON and return count."""
+    winget_apps = [a for a in apps if a.winget_id]
+    if not winget_apps:
+        raise ValueError("No applications with winget IDs are available to export.")
+
+    packages_list = [
+        {
+            "PackageIdentifier": a.winget_id,
+            "PackageVersion": a.version,
+            "PackageName": a.name,
+            "PackageSource": "winget",
+        }
+        for a in winget_apps
+    ]
+    export_data = {
+        "$schema": "https://aka.ms/winget-packages.schema.2.0.json",
+        "CreationDate": datetime.now().isoformat(),
+        "WinGetVersion": "1.0.0",
+        "Sources": [
+            {
+                "SourceDetails": {
+                    "Argument": "https://cdn.winget.microsoft.com/cache",
+                    "Identifier": "Microsoft.Winget.Source_8wekyb3d8bbwe",
+                    "Name": "winget",
+                    "Type": "Microsoft.PreIndexed.Package",
+                },
+                "Packages": packages_list,
+            }
+        ],
+    }
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(export_data, f, indent=2, ensure_ascii=False)
+    return len(winget_apps)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # APPLICATION SCANNER ENGINE
@@ -519,75 +733,85 @@ class ApplicationScanner:
         
         return apps
     
-    def scan_all(self) -> List[Application]:
+    def scan_all(self, include_sources: Optional[set] = None) -> List[Application]:
         """Perform comprehensive scan of all sources."""
         self._cancelled = False
         self.applications = []
         self.seen_apps = set()
+
+        def source_enabled(source: str) -> bool:
+            return include_sources is None or source in include_sources
         
         # Scan registry (primary source)
-        self._update_status("Phase 1/7: Scanning Windows Registry...")
-        registry_apps = self.scan_registry()
-        self.applications.extend(registry_apps)
-        
-        if self._cancelled:
-            return self.applications
+        if source_enabled("registry"):
+            self._update_status("Phase 1/7: Scanning Windows Registry...")
+            registry_apps = self.scan_registry()
+            self.applications.extend(registry_apps)
+            
+            if self._cancelled:
+                return self.applications
         
         # Scan Store apps
-        self._update_status("Phase 2/7: Scanning Microsoft Store apps...")
-        store_apps = self.scan_store_apps()
-        self.applications.extend(store_apps)
-        
-        if self._cancelled:
-            return self.applications
+        if source_enabled("store"):
+            self._update_status("Phase 2/7: Scanning Microsoft Store apps...")
+            store_apps = self.scan_store_apps()
+            self.applications.extend(store_apps)
+            
+            if self._cancelled:
+                return self.applications
         
         # Scan Program Files
-        self._update_status("Phase 3/7: Scanning Program Files...")
-        folder_apps = self.scan_program_files()
-        self.applications.extend(folder_apps)
-        
-        if self._cancelled:
-            return self.applications
+        if source_enabled("program_files"):
+            self._update_status("Phase 3/7: Scanning Program Files...")
+            folder_apps = self.scan_program_files()
+            self.applications.extend(folder_apps)
+            
+            if self._cancelled:
+                return self.applications
         
         # Scan Chocolatey packages
-        self._update_status("Phase 4/7: Scanning Chocolatey packages...")
-        choco_apps = self.scan_chocolatey()
-        self.applications.extend(choco_apps)
-        
-        if self._cancelled:
-            return self.applications
+        if source_enabled("chocolatey"):
+            self._update_status("Phase 4/7: Scanning Chocolatey packages...")
+            choco_apps = self.scan_chocolatey()
+            self.applications.extend(choco_apps)
+            
+            if self._cancelled:
+                return self.applications
         
         # Scan Scoop packages
-        self._update_status("Phase 5/7: Scanning Scoop packages...")
-        scoop_apps = self.scan_scoop()
-        self.applications.extend(scoop_apps)
-        
-        if self._cancelled:
-            return self.applications
+        if source_enabled("scoop"):
+            self._update_status("Phase 5/7: Scanning Scoop packages...")
+            scoop_apps = self.scan_scoop()
+            self.applications.extend(scoop_apps)
+            
+            if self._cancelled:
+                return self.applications
         
         # Scan pip packages
-        self._update_status("Phase 6/7: Scanning Python (pip) packages...")
-        pip_apps = self.scan_pip()
-        self.applications.extend(pip_apps)
-        
-        if self._cancelled:
-            return self.applications
+        if source_enabled("pip"):
+            self._update_status("Phase 6/7: Scanning Python (pip) packages...")
+            pip_apps = self.scan_pip()
+            self.applications.extend(pip_apps)
+            
+            if self._cancelled:
+                return self.applications
         
         # Cross-reference with winget for package IDs and upgrade status
-        self._update_status("Phase 7/7: Cross-referencing with winget...")
-        winget_map = self._build_winget_map()
-        if winget_map:
-            for app in self.applications:
-                norm = self._normalize_name(app.name)
-                if norm in winget_map:
-                    app.winget_id = winget_map[norm]
-        
-        # Check for upgradeable versions
-        upgrade_map = self._build_upgrade_map()
-        if upgrade_map:
-            for app in self.applications:
-                if app.winget_id and app.winget_id in upgrade_map:
-                    app.upgrade_available = f"Update Available ({upgrade_map[app.winget_id]})"
+        if source_enabled("winget"):
+            self._update_status("Phase 7/7: Cross-referencing with winget...")
+            winget_map = self._build_winget_map()
+            if winget_map:
+                for app in self.applications:
+                    norm = self._normalize_name(app.name)
+                    if norm in winget_map:
+                        app.winget_id = winget_map[norm]
+            
+            # Check for upgradeable versions
+            upgrade_map = self._build_upgrade_map()
+            if upgrade_map:
+                for app in self.applications:
+                    if app.winget_id and app.winget_id in upgrade_map:
+                        app.upgrade_available = f"Update Available ({upgrade_map[app.winget_id]})"
         
         # Ghost entry detection: flag apps whose install location doesn't exist
         for app in self.applications:
@@ -1653,38 +1877,7 @@ class AppList(ctk.CTk):
             return
         
         try:
-            with open(filepath, 'w', encoding='utf-8') as f:
-                f.write("=" * 100 + "\n")
-                f.write(f"  {APP_NAME} - Application Inventory Report\n")
-                f.write(f"  Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"  Total Applications: {len(self.filtered_apps)}\n")
-                f.write("=" * 100 + "\n\n")
-                
-                for i, app in enumerate(self.filtered_apps, 1):
-                    f.write(f"[{i:04d}] {app.name}\n")
-                    f.write("-" * 80 + "\n")
-                    if app.publisher:
-                        f.write(f"       Publisher:        {app.publisher}\n")
-                    if app.version:
-                        f.write(f"       Version:          {app.version}\n")
-                    if app.install_date:
-                        f.write(f"       Install Date:     {app.install_date}\n")
-                    if app.install_location:
-                        f.write(f"       Install Location: {app.install_location}\n")
-                    if app.uninstall_registry_key:
-                        f.write(f"       Registry Key:     {app.uninstall_registry_key}\n")
-                    if app.uninstall_command:
-                        f.write(f"       Uninstall Cmd:    {app.uninstall_command}\n")
-                    if app.estimated_size:
-                        f.write(f"       Size:             {app.estimated_size}\n")
-                    f.write(f"       Type:             {app.app_type}\n")
-                    f.write(f"       Source:           {app.source}\n")
-                    f.write("\n")
-                
-                f.write("=" * 100 + "\n")
-                f.write("  End of Report\n")
-                f.write("=" * 100 + "\n")
-            
+            write_txt_export(self.filtered_apps, filepath)
             messagebox.showinfo("Export Complete", f"Successfully exported {len(self.filtered_apps)} applications to:\n{filepath}")
             
         except OSError as e:
@@ -1710,30 +1903,7 @@ class AppList(ctk.CTk):
             return
         
         try:
-            with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
-                writer = csv.writer(f)
-                
-                # Header row
-                writer.writerow([
-                    "Application Name",
-                    "Publisher",
-                    "Version",
-                    "Install Date",
-                    "Install Location",
-                    "Registry Key",
-                    "Uninstall Command",
-                    "Estimated Size",
-                    "Source",
-                    "Architecture",
-                    "Type",
-                    "Winget ID",
-                    "Update Available",
-                ])
-                
-                # Data rows
-                for app in self.filtered_apps:
-                    writer.writerow(app.to_export_row())
-            
+            write_csv_export(self.filtered_apps, filepath)
             messagebox.showinfo("Export Complete", f"Successfully exported {len(self.filtered_apps)} applications to:\n{filepath}")
             
         except (OSError, csv.Error) as e:
@@ -1756,61 +1926,7 @@ class AppList(ctk.CTk):
             return
 
         try:
-            hostname = os.environ.get("COMPUTERNAME", "Unknown")
-            username = os.environ.get("USERNAME", "Unknown")
-
-            group_titles = {
-                "Desktop": "Desktop Apps",
-                "Store App": "Store / UWP Apps",
-                "Desktop (Unregistered)": "Unregistered (Program Files)",
-                "Chocolatey": "Chocolatey Packages",
-                "Scoop": "Scoop Apps",
-                "Python Package": "Python Packages (pip)",
-            }
-            group_order = [
-                "Desktop",
-                "Store App",
-                "Desktop (Unregistered)",
-                "Chocolatey",
-                "Scoop",
-                "Python Package",
-            ]
-            groups: Dict[str, List[Application]] = {}
-            for app in self.filtered_apps:
-                groups.setdefault(app.app_type or "Unknown", []).append(app)
-
-            ordered_groups = [
-                app_type for app_type in group_order if app_type in groups
-            ]
-            ordered_groups.extend(
-                sorted(app_type for app_type in groups if app_type not in group_titles)
-            )
-
-            def _md_row(i: int, app: Application) -> str:
-                name = app.name.replace("|", "\\|")
-                pub  = app.publisher.replace("|", "\\|")
-                wid  = app.winget_id if app.winget_id else ""
-                return f"| {i} | {name} | {pub} | {app.version} | {app.install_date} | {app.estimated_size} | {wid} |\n"
-
-            with open(filepath, "w", encoding="utf-8") as f:
-                f.write(f"# Application Inventory — {hostname}\n\n")
-                f.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  \n")
-                f.write(f"**Machine:** `{hostname}` / `{username}`  \n")
-                f.write(f"**Total:** {len(self.filtered_apps)} applications  \n\n")
-                f.write("---\n\n")
-
-                for app_type in ordered_groups:
-                    group = groups[app_type]
-                    group_name = group_titles.get(app_type, app_type)
-                    if not group:
-                        continue
-                    f.write(f"## {group_name} ({len(group)})\n\n")
-                    f.write("| # | Name | Publisher | Version | Install Date | Size | Winget ID |\n")
-                    f.write("|---|------|-----------|---------|--------------|------|-----------|\n")
-                    for i, app in enumerate(group, 1):
-                        f.write(_md_row(i, app))
-                    f.write("\n")
-
+            write_markdown_export(self.filtered_apps, filepath)
             messagebox.showinfo("Export Complete", f"Successfully exported {len(self.filtered_apps)} applications to:\n{filepath}")
 
         except OSError as e:
@@ -1833,17 +1949,7 @@ class AppList(ctk.CTk):
             return
 
         try:
-            hostname = os.environ.get("COMPUTERNAME", "Unknown")
-            export_data = {
-                "schema": f"AppList/{APP_VERSION}",
-                "generated": datetime.now().isoformat(),
-                "machine": hostname,
-                "total": len(self.filtered_apps),
-                "applications": [app.to_dict() for app in self.filtered_apps],
-            }
-            with open(filepath, "w", encoding="utf-8") as f:
-                json.dump(export_data, f, indent=2, ensure_ascii=False)
-
+            write_json_export(self.filtered_apps, filepath)
             messagebox.showinfo("Export Complete", f"Successfully exported {len(self.filtered_apps)} applications to:\n{filepath}")
 
         except (OSError, TypeError, ValueError) as e:
@@ -1879,37 +1985,10 @@ class AppList(ctk.CTk):
             return
 
         try:
-            packages_list = [
-                {
-                    "PackageIdentifier": a.winget_id,
-                    "PackageVersion": a.version,
-                    "PackageName": a.name,
-                    "PackageSource": "winget",
-                }
-                for a in winget_apps
-            ]
-            export_data = {
-                "$schema": "https://aka.ms/winget-packages.schema.2.0.json",
-                "CreationDate": datetime.now().isoformat(),
-                "WinGetVersion": "1.0.0",
-                "Sources": [
-                    {
-                        "SourceDetails": {
-                            "Argument": "https://cdn.winget.microsoft.com/cache",
-                            "Identifier": "Microsoft.Winget.Source_8wekyb3d8bbwe",
-                            "Name": "winget",
-                            "Type": "Microsoft.PreIndexed.Package",
-                        },
-                        "Packages": packages_list,
-                    }
-                ],
-            }
-            with open(filepath, "w", encoding="utf-8") as f:
-                json.dump(export_data, f, indent=2, ensure_ascii=False)
-
+            exported_count = write_winget_export(self.filtered_apps, filepath)
             messagebox.showinfo(
                 "Export Complete",
-                f"Exported {len(winget_apps)} matched packages to:\n{filepath}\n\n"
+                f"Exported {exported_count} matched packages to:\n{filepath}\n\n"
                 f"To restore, run:\n  winget import -i \"{filepath}\"",
             )
         except (OSError, TypeError, ValueError) as e:
@@ -2072,8 +2151,85 @@ class AppList(ctk.CTk):
 # ENTRY POINT
 # ══════════════════════════════════════════════════════════════════════════════
 
-def main():
+def build_cli_parser() -> argparse.ArgumentParser:
+    """Build the headless CLI parser."""
+    parser = argparse.ArgumentParser(
+        prog="AppList.py",
+        description="Scan installed Windows applications and export an inventory without launching the GUI.",
+    )
+    parser.add_argument(
+        "--export",
+        choices=["txt", "csv", "md", "markdown", "json", "winget"],
+        required=True,
+        help="Export format to write.",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        required=True,
+        help="Output file path.",
+    )
+    parser.add_argument(
+        "--include",
+        default="all",
+        help=(
+            "Comma-separated sources to scan. Supported: all, desktop, registry, "
+            "store, program_files, chocolatey, scoop, pip, winget."
+        ),
+    )
+    parser.add_argument("--version", action="version", version=f"{APP_NAME} v{APP_VERSION}")
+    return parser
+
+
+def run_cli(argv: List[str]) -> int:
+    """Run AppList in headless CLI mode."""
+    parser = build_cli_parser()
+    args = parser.parse_args(argv)
+    export_format = "markdown" if args.export == "md" else args.export
+
+    try:
+        include_sources = parse_include_sources(args.include)
+    except ValueError as e:
+        parser.error(str(e))
+
+    if export_format == "winget":
+        include_sources.add("winget")
+
+    output_path = Path(args.output).expanduser()
+    if output_path.parent and str(output_path.parent) not in ("", "."):
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def status(message: str):
+        print(message, file=sys.stderr)
+
+    scanner = ApplicationScanner(status_callback=status)
+    apps = scanner.scan_all(include_sources=include_sources)
+
+    writers = {
+        "txt": write_txt_export,
+        "csv": write_csv_export,
+        "markdown": write_markdown_export,
+        "json": write_json_export,
+        "winget": write_winget_export,
+    }
+
+    try:
+        result = writers[export_format](apps, str(output_path))
+    except (OSError, csv.Error, TypeError, ValueError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    exported_count = result if isinstance(result, int) else len(apps)
+    print(f"Exported {exported_count} applications to {output_path}")
+    return 0
+
+
+def main(argv: Optional[List[str]] = None) -> int:
     """Application entry point."""
+    argv = sys.argv[1:] if argv is None else argv
+    if argv:
+        return run_cli(argv)
+
     # Set DPI awareness for sharp rendering on high-DPI displays
     try:
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
@@ -2085,6 +2241,7 @@ def main():
     
     app = AppList()
     app.mainloop()
+    return 0
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
