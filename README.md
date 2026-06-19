@@ -1,6 +1,6 @@
 # AppList
 
-![Version](https://img.shields.io/badge/version-v1.4.1-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
+![Version](https://img.shields.io/badge/version-v1.5.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
 
 A tool for scanning, cataloging, and exporting all installed applications on your Windows system. Perfect for system migrations, documentation, and reinstallation planning.
 
@@ -38,7 +38,8 @@ A tool for scanning, cataloging, and exporting all installed applications on you
 - Dark Windows title bar integration
 - Real-time progress tracking
 - Compact statistics dashboard with clearer totals and source context
-- Sortable columns (click headers) — Application, Publisher, Version, Installed, Type, Source, Upgrade, Winget ID, Size, Arch, Location, Registry Key
+- Catppuccin Mocha dark color palette
+- Sortable columns (click headers) — Application, Publisher, Version, Installed, Type, Source, Upgrade, Pin, Winget ID, Size, Arch, Location, Registry Key
 - Live search across name, publisher, version, source, type, paths, and Winget ID
 - Type, source, and upgrade/data-quality filters
 - First-run, scanning, no-match, error, and empty-result states
@@ -46,9 +47,18 @@ A tool for scanning, cataloging, and exporting all installed applications on you
 
 ### Export Options
 - **TXT Export** - Formatted report with full details
-- **CSV Export** - Spreadsheet-compatible for Excel/Google Sheets (includes Winget ID column)
+- **CSV Export** - Spreadsheet-compatible for Excel/Google Sheets (includes Winget ID and Pin Status columns)
 - **Markdown Export** - Grouped report (Desktop / Store / Unregistered) — pastes cleanly into ticketing systems and GitHub
 - **JSON Export** - Full AppList schema, round-trippable for diffing between machines
+- **HTML Export** - Self-contained interactive dashboard with sortable, searchable table (no server needed)
+- **pip requirements.txt** - `package==version` format for Python package restoration
+- **Chocolatey packages.config** - XML format consumable by `choco install packages.config`
+
+### Diff / Compare
+- **JSON Snapshot Diff** - Compare two AppList JSON snapshots and report Added, Removed, and VersionChanged entries
+- Run from CLI: `python AppList.py --diff old.json new.json`
+- Output to file: `python AppList.py --diff old.json new.json -o diff_report.txt`
+- Output as JSON: `python AppList.py --diff old.json new.json -o diff_report.json`
 
 ---
 
@@ -87,9 +97,14 @@ Run a headless scan and export without opening the GUI:
 
 ```bash
 python AppList.py --export csv --output apps.csv --include store,winget
+python AppList.py --export html --output dashboard.html
+python AppList.py --export pip --output requirements.txt --include pip
+python AppList.py --export choco --output packages.config --include choco
+python AppList.py --diff old_snapshot.json new_snapshot.json
+python AppList.py --diff old.json new.json -o report.json
 ```
 
-Supported export formats: `txt`, `csv`, `md`, `markdown`, `json`, `winget`.
+Supported export formats: `txt`, `csv`, `md`, `markdown`, `json`, `winget`, `html`, `pip`, `choco`.
 
 Supported source filters: `all`, `desktop`, `registry`, `store`, `program_files`, `chocolatey`, `scoop`, `pip`, `winget`.
 
@@ -154,4 +169,4 @@ MIT License - Free for personal and commercial use.
 
 ---
 
-*AppList v1.4.1*
+*AppList v1.5.0*
