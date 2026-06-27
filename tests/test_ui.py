@@ -1,6 +1,7 @@
 import unittest
 
-from applist.ui import get_page_bounds
+from applist.models import Application
+from applist.ui import get_page_bounds, get_source_group_counts
 
 
 class PaginationTests(unittest.TestCase):
@@ -11,6 +12,17 @@ class PaginationTests(unittest.TestCase):
         self.assertEqual(get_page_bounds(501, 1, 500), (1, 500, 501))
         self.assertEqual(get_page_bounds(501, 99, 500), (1, 500, 501))
         self.assertEqual(get_page_bounds(501, -5, 500), (0, 0, 500))
+
+    def test_source_group_counts_use_unknown_fallback(self):
+        counts = get_source_group_counts(
+            [
+                Application(name="Alpha", source="HKLM64"),
+                Application(name="Beta", source="HKLM64"),
+                Application(name="Gamma", source=""),
+            ]
+        )
+
+        self.assertEqual(counts, {"HKLM64": 2, "Unknown": 1})
 
 
 if __name__ == "__main__":

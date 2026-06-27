@@ -51,6 +51,14 @@ def get_page_bounds(total_rows: int, current_page: int, page_size: int = PAGE_SI
     return page, start, end
 
 
+def get_source_group_counts(apps: List[Application]) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    for app in apps:
+        source = app.source or "Unknown"
+        counts[source] = counts.get(source, 0) + 1
+    return counts
+
+
 try:
     import winreg
 except ImportError:
@@ -202,6 +210,7 @@ class AppListWindow(ctk.CTk):
         self.sort_reverse = False
         self.current_page = 0
         self.page_size = PAGE_SIZE
+        self.group_by_source_var = tk.BooleanVar(value=False)
         self.is_scanning = False
         self.scan_has_run = False
 
@@ -527,6 +536,22 @@ class AppListWindow(ctk.CTk):
         )
         self.upgrade_filter_dropdown.pack(side="left", padx=(10, 0))
 
+        self.group_by_source_checkbox = ctk.CTkCheckBox(
+            top_row,
+            text="Group by Source",
+            variable=self.group_by_source_var,
+            command=self._on_grouping_changed,
+            width=150,
+            height=38,
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            fg_color=COLORS["accent_primary"],
+            hover_color=COLORS["accent_secondary"],
+            border_color=COLORS["border_strong"],
+            checkmark_color=COLORS["bg_primary"],
+            text_color=COLORS["text_secondary"],
+        )
+        self.group_by_source_checkbox.pack(side="left", padx=(10, 0))
+
         export_hint = ctk.CTkLabel(
             bottom_row,
             text="Exports use the current filtered view.",
@@ -618,7 +643,7 @@ class AppListWindow(ctk.CTk):
         )
 
         self.tree = ttk.Treeview(
-            tree_frame, columns=columns, show="headings",
+            tree_frame, columns=columns, show="tree headings",
             style="Premium.Treeview",
             yscrollcommand=y_scroll.set, xscrollcommand=x_scroll.set,
         )
@@ -649,6 +674,8 @@ class AppListWindow(ctk.CTk):
         for col, (heading, width) in column_config.items():
             self.tree.heading(col, text=heading, anchor="w", command=lambda c=col: self._sort_by_column(c))
             self.tree.column(col, width=width, minwidth=80, anchor="w")
+        self.tree.heading("#0", text="Group", anchor="w")
+        self.tree.column("#0", width=0, minwidth=0, stretch=False, anchor="w")
 
         # Pack treeview and scrollbars
         y_scroll.pack(side="right", fill="y")
@@ -657,6 +684,7 @@ class AppListWindow(ctk.CTk):
 
         self.tree.tag_configure("ghost", foreground=COLORS["accent_warning"])
         self.tree.tag_configure("update", foreground=COLORS["accent_secondary"])
+        self.tree.tag_configure("group", foreground=COLORS["accent_primary"])
 
         self.empty_state_frame = ctk.CTkFrame(content_frame, fg_color="transparent", corner_radius=0, border_width=0)
         self.empty_icon = ctk.CTkLabel(
@@ -957,28 +985,11 @@ class AppListWindow(ctk.CTk):
         )
         page_apps = self.filtered_apps[start:end]
 
-        for offset, app in enumerate(page_apps):
-            index = start + offset
-            status = ""
-            row_tags = ()
-            if app.ghost:
-                status = "Missing path"
-                row_tags = ("ghost",)
-            elif app.upgrade_available:
-                status = app.upgrade_available
-                row_tags = ("update",)
-
-            iid = f"app-{index}"
-            self.tree_iid_to_index[iid] = index
-
-            self.tree.insert("", "end", iid=iid, values=(
-                app.name, app.publisher, app.version, app.install_date,
-                app.last_used_date,
-                app.app_type, app.source, status, app.pin_status,
-                app.winget_id, app.sha256_hash, "Report" if app.virustotal_url else "",
-                app.estimated_size, app.architecture,
-                app.install_location, app.uninstall_registry_key,
-            ), tags=row_tags)
+        self._sync_group_column()
+        if self.group_by_source_var.get():
+            self._populate_grouped_rows(page_apps, start)
+        else:
+            self._populate_flat_rows(page_apps, start)
 
         if self.applications:
             if self.filtered_apps:
@@ -1021,6 +1032,69 @@ class AppListWindow(ctk.CTk):
             )
         else:
             self._hide_empty_state()
+
+    def _sync_group_column(self):
+        if self.group_by_source_var.get():
+            self.tree.column("#0", width=190, minwidth=130, stretch=False, anchor="w")
+        else:
+            self.tree.column("#0", width=0, minwidth=0, stretch=False, anchor="w")
+
+    def _row_values(self, app: Application):
+        status = ""
+        row_tags = ()
+        if app.ghost:
+            status = "Missing path"
+            row_tags = ("ghost",)
+        elif app.upgrade_available:
+            status = app.upgrade_available
+            row_tags = ("update",)
+
+        values = (
+            app.name, app.publisher, app.version, app.install_date,
+            app.last_used_date,
+            app.app_type, app.source, status, app.pin_status,
+            app.winget_id, app.sha256_hash, "Report" if app.virustotal_url else "",
+            app.estimated_size, app.architecture,
+            app.install_location, app.uninstall_registry_key,
+        )
+        return values, row_tags
+
+    def _populate_flat_rows(self, page_apps: List[Application], start: int):
+        for offset, app in enumerate(page_apps):
+            index = start + offset
+            values, row_tags = self._row_values(app)
+            iid = f"app-{index}"
+            self.tree_iid_to_index[iid] = index
+            self.tree.insert("", "end", iid=iid, text="", values=values, tags=row_tags)
+
+    def _populate_grouped_rows(self, page_apps: List[Application], start: int):
+        source_counts = get_source_group_counts(self.filtered_apps)
+        group_nodes: Dict[str, str] = {}
+        blank_values = ("", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "")
+
+        for offset, app in enumerate(page_apps):
+            index = start + offset
+            source = app.source or "Unknown"
+            if source not in group_nodes:
+                group_iid = f"group-{len(group_nodes)}-{self._normalize_tree_iid(source)}"
+                group_nodes[source] = group_iid
+                self.tree.insert(
+                    "",
+                    "end",
+                    iid=group_iid,
+                    text=f"{source} ({source_counts.get(source, 0)})",
+                    values=blank_values,
+                    open=True,
+                    tags=("group",),
+                )
+
+            values, row_tags = self._row_values(app)
+            iid = f"app-{index}"
+            self.tree_iid_to_index[iid] = index
+            self.tree.insert(group_nodes[source], "end", iid=iid, text="", values=values, tags=row_tags)
+
+    def _normalize_tree_iid(self, value: str) -> str:
+        return "".join(ch if ch.isalnum() else "-" for ch in value.lower())[:40] or "unknown"
 
     def _previous_page(self):
         if self.current_page > 0:
@@ -1100,6 +1174,10 @@ class AppListWindow(ctk.CTk):
 
     def _on_filter_changed(self, *args):
         self._apply_filters()
+
+    def _on_grouping_changed(self):
+        self.current_page = 0
+        self._populate_treeview()
 
     def _sort_by_column(self, column: str):
         if self.sort_column == column:
@@ -1368,7 +1446,10 @@ class AppListWindow(ctk.CTk):
         item = self.tree.identify_row(event.y)
         if item:
             self.tree.selection_set(item)
-            self._sync_context_menu_state(self._get_selected_app())
+            app = self._get_selected_app()
+            if not app:
+                return
+            self._sync_context_menu_state(app)
             self.context_menu.post(event.x_root, event.y_root)
 
     def _sync_context_menu_state(self, app: Optional[Application]):

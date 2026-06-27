@@ -1,6 +1,6 @@
 # AppList
 
-![Version](https://img.shields.io/badge/version-v1.6.4-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
+![Version](https://img.shields.io/badge/version-v1.6.5-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
 
 A Windows application inventory tool for scanning, cataloging, comparing, and exporting installed software before migrations, rebuilds, audits, and reinstall planning.
 
@@ -29,6 +29,7 @@ A Windows application inventory tool for scanning, cataloging, comparing, and ex
 - Threaded scans with live progress and cancellation
 - Sortable table with Application, Publisher, Version, Installed, Last Used, Type, Source, Upgrade, Pin, Winget ID, SHA-256, VirusTotal, Size, Arch, Location, and Registry Key columns
 - 500-row table pagination for large inventories while exports still include the full filtered result set
+- Optional source-grouped view with expandable/collapsible source sections
 - Live search across names, publishers, versions, paths, sources, types, and Winget IDs
 - Type, source, and upgrade/data-quality filters
 - First-run, scanning, no-match, error, and empty-result states
@@ -139,4 +140,4 @@ MIT License - Free for personal and commercial use.
 
 ---
 
-*AppList v1.6.4*
+*AppList v1.6.5*
