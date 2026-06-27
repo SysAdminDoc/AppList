@@ -1,15 +1,28 @@
 """Application scanner engine — discovers installed software from multiple sources."""
 
+import codecs
 import json
 import os
 import re
+import struct
 import subprocess
 import sys
 import winreg
+from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from .models import Application
 from .constants import REGISTRY_PATHS
+
+try:
+    from windowsprefetch import Prefetch
+except ImportError:
+    Prefetch = None  # type: ignore[assignment]
+
+
+FILETIME_EPOCH = datetime(1601, 1, 1)
+USERASSIST_ROOT = r"Software\Microsoft\Windows\CurrentVersion\Explorer\UserAssist"
 
 
 class ApplicationScanner:
@@ -62,6 +75,203 @@ class ApplicationScanner:
             return date_str
         except (TypeError, ValueError):
             return date_str
+
+    def _filetime_to_string(self, filetime: int) -> str:
+        """Convert a Windows FILETIME integer to AppList's timestamp string."""
+        if filetime <= 0:
+            return ""
+        try:
+            dt = FILETIME_EPOCH + timedelta(microseconds=filetime / 10)
+        except (OverflowError, ValueError):
+            return ""
+
+        now = datetime.now()
+        if dt.year < 1990 or dt > now + timedelta(days=2):
+            return ""
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    def _parse_datetime_string(self, value: str) -> str:
+        """Normalize parser timestamps to AppList's timestamp string."""
+        if not value:
+            return ""
+        cleaned = str(value).strip().replace("T", " ").replace("Z", "")
+        for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(cleaned[:26], fmt).strftime("%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                continue
+        return ""
+
+    def _timestamp_key(self, value: str) -> datetime:
+        parsed = self._parse_datetime_string(value)
+        if not parsed:
+            return FILETIME_EPOCH
+        return datetime.strptime(parsed, "%Y-%m-%d %H:%M:%S")
+
+    def _newer_timestamp(self, current: str, candidate: str) -> str:
+        candidate = self._parse_datetime_string(candidate)
+        if not candidate:
+            return current
+        if not current:
+            return candidate
+        return candidate if self._timestamp_key(candidate) > self._timestamp_key(current) else current
+
+    def _extract_userassist_timestamp(self, payload: bytes) -> str:
+        """Read the last-run FILETIME from UserAssist binary payloads."""
+        if not isinstance(payload, (bytes, bytearray)):
+            return ""
+        for offset in (60, 8):
+            if len(payload) < offset + 8:
+                continue
+            timestamp = self._filetime_to_string(struct.unpack_from("<Q", payload, offset)[0])
+            if timestamp:
+                return timestamp
+        return ""
+
+    def _strip_userassist_prefix(self, decoded_name: str) -> str:
+        value = decoded_name.strip("\x00 ")
+        for prefix in ("UEME_RUNPATH:", "UEME_RUNPIDL:", "UEME_CTLCUACOUNT:", "UEME_CTLSESSION:"):
+            if value.upper().startswith(prefix):
+                return value[len(prefix):]
+        return value
+
+    def _candidate_keys(self, value: str) -> set:
+        """Return normalized matching keys for an app name, path, executable, or ID."""
+        if not value:
+            return set()
+
+        raw = os.path.expandvars(str(value).strip().strip('"').strip("'"))
+        if not raw:
+            return set()
+
+        cleaned = re.sub(r"^\[(?:Folder|Store)\]\s*", "", raw, flags=re.IGNORECASE)
+        normalized_path = cleaned.replace("/", "\\")
+        pieces = {raw, cleaned}
+
+        for token in re.split(r"[!|]", cleaned):
+            if token.strip():
+                pieces.add(token.strip())
+
+        basename = os.path.basename(normalized_path.rstrip("\\"))
+        if basename:
+            pieces.add(basename)
+            stem, _ = os.path.splitext(basename)
+            if stem:
+                pieces.add(stem)
+
+        if "." in cleaned and "\\" not in cleaned:
+            pieces.add(cleaned.split(".")[-1])
+
+        return {self._normalize_name(piece) for piece in pieces if self._normalize_name(piece)}
+
+    def _record_last_used(self, mapping: Dict[str, str], candidates: set, timestamp: str):
+        for key in candidates:
+            mapping[key] = self._newer_timestamp(mapping.get(key, ""), timestamp)
+
+    def _build_userassist_last_used_map(self) -> Dict[str, str]:
+        """Build normalized app/path keys from UserAssist launch history."""
+        last_used: Dict[str, str] = {}
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, USERASSIST_ROOT, 0, winreg.KEY_READ) as root:
+                guid_count = winreg.QueryInfoKey(root)[0]
+                for guid_index in range(guid_count):
+                    if self._cancelled:
+                        break
+                    guid_name = winreg.EnumKey(root, guid_index)
+                    try:
+                        with winreg.OpenKey(root, f"{guid_name}\\Count", 0, winreg.KEY_READ) as count_key:
+                            value_count = winreg.QueryInfoKey(count_key)[1]
+                            for value_index in range(value_count):
+                                try:
+                                    raw_name, payload, _ = winreg.EnumValue(count_key, value_index)
+                                except OSError:
+                                    continue
+                                timestamp = self._extract_userassist_timestamp(payload)
+                                if not timestamp:
+                                    continue
+                                decoded_name = codecs.decode(raw_name, "rot_13")
+                                clean_name = self._strip_userassist_prefix(decoded_name)
+                                self._record_last_used(last_used, self._candidate_keys(clean_name), timestamp)
+                    except (FileNotFoundError, OSError, PermissionError):
+                        continue
+        except (FileNotFoundError, OSError, PermissionError, AttributeError) as e:
+            self._log_warning(f"UserAssist last-used data could not be scanned: {e}")
+        return last_used
+
+    def _build_prefetch_last_used_map(self) -> Dict[str, str]:
+        """Build normalized executable keys from Windows Prefetch files."""
+        last_used: Dict[str, str] = {}
+        if Prefetch is None:
+            self._log_warning("Prefetch parser is not installed; last-used Prefetch data skipped.")
+            return last_used
+
+        prefetch_dir = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Prefetch"
+        try:
+            pf_files = list(prefetch_dir.glob("*.pf"))
+        except (OSError, PermissionError) as e:
+            self._log_warning(f"Prefetch last-used data could not be scanned: {e}")
+            return last_used
+
+        failed = 0
+        for pf_path in pf_files:
+            if self._cancelled:
+                break
+            try:
+                parsed = Prefetch(str(pf_path))
+                timestamp = ""
+                for raw_timestamp in getattr(parsed, "timestamps", []) or []:
+                    timestamp = self._newer_timestamp(timestamp, str(raw_timestamp))
+                if not timestamp:
+                    continue
+
+                executable_name = str(getattr(parsed, "executableName", "") or "")
+                fallback_name = pf_path.name.split("-")[0]
+                self._record_last_used(
+                    last_used,
+                    self._candidate_keys(executable_name) | self._candidate_keys(fallback_name),
+                    timestamp,
+                )
+            except (OSError, PermissionError, struct.error, UnicodeDecodeError, ValueError, IndexError):
+                failed += 1
+
+        if failed:
+            self._log_warning(f"{failed} Prefetch files could not be parsed.")
+        return last_used
+
+    def _application_last_used_candidates(self, app: Application) -> set:
+        candidates = set()
+        for value in (app.name, app.install_location, app.winget_id):
+            candidates.update(self._candidate_keys(value))
+
+        if app.install_location and os.path.isdir(app.install_location):
+            try:
+                for child in os.listdir(app.install_location):
+                    if child.lower().endswith(".exe"):
+                        candidates.update(self._candidate_keys(child))
+            except (OSError, PermissionError):
+                pass
+        return candidates
+
+    def _apply_last_used_dates(self):
+        """Enrich collected applications with best-effort last-used timestamps."""
+        if not self.applications:
+            return
+
+        self._update_status("Phase 8/8: Reading last-used activity...")
+        self._update_progress(88)
+
+        userassist_map = self._build_userassist_last_used_map()
+        self._update_progress(92)
+        prefetch_map = self._build_prefetch_last_used_map()
+        if not userassist_map and not prefetch_map:
+            return
+
+        for app in self.applications:
+            last_used = ""
+            for candidate in self._application_last_used_candidates(app):
+                last_used = self._newer_timestamp(last_used, userassist_map.get(candidate, ""))
+                last_used = self._newer_timestamp(last_used, prefetch_map.get(candidate, ""))
+            app.last_used_date = last_used
 
     def _get_registry_value(self, key, value_name: str, default: str = "") -> str:
         """Safely get a registry value."""
@@ -679,7 +889,7 @@ class ApplicationScanner:
 
         # Scan registry (primary source)
         if source_enabled("registry"):
-            self._update_status("Phase 1/7: Scanning Windows Registry...")
+            self._update_status("Phase 1/8: Scanning Windows Registry...")
             registry_apps = self.scan_registry()
             self.applications.extend(registry_apps)
 
@@ -688,7 +898,7 @@ class ApplicationScanner:
 
         # Scan Store apps
         if source_enabled("store"):
-            self._update_status("Phase 2/7: Scanning Microsoft Store apps...")
+            self._update_status("Phase 2/8: Scanning Microsoft Store apps...")
             store_apps = self.scan_store_apps()
             self.applications.extend(store_apps)
 
@@ -697,7 +907,7 @@ class ApplicationScanner:
 
         # Scan Program Files
         if source_enabled("program_files"):
-            self._update_status("Phase 3/7: Scanning Program Files...")
+            self._update_status("Phase 3/8: Scanning Program Files...")
             folder_apps = self.scan_program_files()
             self.applications.extend(folder_apps)
 
@@ -706,7 +916,7 @@ class ApplicationScanner:
 
         # Scan Chocolatey packages
         if source_enabled("chocolatey"):
-            self._update_status("Phase 4/7: Scanning Chocolatey packages...")
+            self._update_status("Phase 4/8: Scanning Chocolatey packages...")
             choco_apps = self.scan_chocolatey()
             self.applications.extend(choco_apps)
 
@@ -715,7 +925,7 @@ class ApplicationScanner:
 
         # Scan Scoop packages
         if source_enabled("scoop"):
-            self._update_status("Phase 5/7: Scanning Scoop packages...")
+            self._update_status("Phase 5/8: Scanning Scoop packages...")
             scoop_apps = self.scan_scoop()
             self.applications.extend(scoop_apps)
 
@@ -724,7 +934,7 @@ class ApplicationScanner:
 
         # Scan pip packages
         if source_enabled("pip"):
-            self._update_status("Phase 6/7: Scanning Python (pip) packages...")
+            self._update_status("Phase 6/8: Scanning Python (pip) packages...")
             pip_apps = self.scan_pip()
             self.applications.extend(pip_apps)
 
@@ -733,7 +943,7 @@ class ApplicationScanner:
 
         # Cross-reference with winget for package IDs and upgrade status
         if source_enabled("winget"):
-            self._update_status("Phase 7/7: Cross-referencing with winget...")
+            self._update_status("Phase 7/8: Cross-referencing with winget...")
             winget_map = self._build_winget_map()
             if winget_map:
                 for app in self.applications:
@@ -754,6 +964,8 @@ class ApplicationScanner:
                 for app in self.applications:
                     if app.winget_id and app.winget_id in pin_map:
                         app.pin_status = pin_map[app.winget_id]
+
+        self._apply_last_used_dates()
 
         # Ghost entry detection: flag apps whose install location doesn't exist
         for app in self.applications:

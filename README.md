@@ -1,6 +1,6 @@
 # AppList
 
-![Version](https://img.shields.io/badge/version-v1.6.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
+![Version](https://img.shields.io/badge/version-v1.6.1-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
 
 A Windows application inventory tool for scanning, cataloging, comparing, and exporting installed software before migrations, rebuilds, audits, and reinstall planning.
 
@@ -14,9 +14,10 @@ A Windows application inventory tool for scanning, cataloging, comparing, and ex
 - Program Files discovery for unregistered desktop apps
 - Chocolatey, Scoop, and Python pip package inventories
 - Winget cross-reference for package IDs, update availability, and pin status
+- Last-used date enrichment from UserAssist and Windows Prefetch evidence when accessible
 
 ### Detailed Information Captured
-- Application name, publisher, version, install date, source, type, architecture, and size
+- Application name, publisher, version, install date, last-used date, source, type, architecture, and size
 - Install location, registry uninstall key, and uninstall command
 - Winget package ID, upgrade status, pin status, and missing-path flag
 
@@ -24,7 +25,7 @@ A Windows application inventory tool for scanning, cataloging, comparing, and ex
 - Catppuccin Mocha dark theme
 - DPI-aware Windows title bar integration
 - Threaded scans with live progress and cancellation
-- Sortable table with Application, Publisher, Version, Installed, Type, Source, Upgrade, Pin, Winget ID, Size, Arch, Location, and Registry Key columns
+- Sortable table with Application, Publisher, Version, Installed, Last Used, Type, Source, Upgrade, Pin, Winget ID, Size, Arch, Location, and Registry Key columns
 - Live search across names, publishers, versions, paths, sources, types, and Winget IDs
 - Type, source, and upgrade/data-quality filters
 - First-run, scanning, no-match, error, and empty-result states
@@ -122,6 +123,7 @@ Full AppList schema with machine name, generation timestamp, and application rec
 - Modular package layout with scanner, export, CLI, model, constants, and GUI modules
 - Runs with elevated privileges for complete registry access
 - Filters system components, Windows updates, framework packages, and duplicate entries
+- Parses UserAssist and Prefetch activity on a best-effort basis for last-used timestamps
 - DPI-aware rendering
 - Thread-safe scanning with cancellation support
 - Local PyInstaller build script for single-file Windows executable generation
@@ -132,4 +134,4 @@ MIT License - Free for personal and commercial use.
 
 ---
 
-*AppList v1.6.0*
+*AppList v1.6.1*

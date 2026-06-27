@@ -196,7 +196,7 @@ class AppListWindow(ctk.CTk):
         self._set_export_buttons_enabled(False)
         self._show_empty_state(
             "No inventory yet",
-            "Run a scan to discover installed desktop, Store, package-manager, and Python applications.",
+            "Run a scan to discover installed apps, package inventory, and recent-use signals.",
             action_text="Scan System",
             action_command=self._start_scan,
         )
@@ -556,7 +556,7 @@ class AppListWindow(ctk.CTk):
 
         # Treeview columns
         columns = (
-            "name", "publisher", "version", "install_date",
+            "name", "publisher", "version", "install_date", "last_used_date",
             "type", "source", "upgrade_available", "pin_status", "winget_id",
             "size", "architecture", "install_location", "registry_key",
         )
@@ -592,6 +592,7 @@ class AppListWindow(ctk.CTk):
             "publisher": ("Publisher", 180),
             "version": ("Version", 100),
             "install_date": ("Installed", 105),
+            "last_used_date": ("Last Used", 145),
             "type": ("Type", 132),
             "source": ("Source", 132),
             "upgrade_available": ("Upgrade", 175),
@@ -774,7 +775,7 @@ class AppListWindow(ctk.CTk):
         self.count_label.configure(text="Scanning all configured sources")
         self._show_empty_state(
             "Scanning system",
-            "Collecting registry, Store, Program Files, package-manager, Python, and winget details.",
+            "Collecting registry, Store, package-manager, winget, and recent-use details.",
             tone="progress",
         )
 
@@ -903,6 +904,7 @@ class AppListWindow(ctk.CTk):
 
             self.tree.insert("", "end", iid=iid, values=(
                 app.name, app.publisher, app.version, app.install_date,
+                app.last_used_date,
                 app.app_type, app.source, status, app.pin_status,
                 app.winget_id, app.estimated_size, app.architecture,
                 app.install_location, app.uninstall_registry_key,
@@ -920,7 +922,7 @@ class AppListWindow(ctk.CTk):
         if self.is_scanning:
             self._show_empty_state(
                 "Scanning system",
-                "Collecting registry, Store, Program Files, package-manager, Python, and winget details.",
+                "Collecting registry, Store, package-manager, winget, and recent-use details.",
                 tone="progress",
             )
         elif not self.applications and self.scan_has_run:
@@ -932,7 +934,7 @@ class AppListWindow(ctk.CTk):
         elif not self.applications:
             self._show_empty_state(
                 "No inventory yet",
-                "Run a scan to discover installed desktop, Store, package-manager, and Python applications.",
+                "Run a scan to discover installed apps, package inventory, and recent-use signals.",
                 action_text="Scan System", action_command=self._start_scan,
             )
         elif not self.filtered_apps:
@@ -956,7 +958,8 @@ class AppListWindow(ctk.CTk):
             if search_text:
                 searchable = (
                     f"{app.name} {app.publisher} {app.version} {app.install_location} "
-                    f"{app.uninstall_registry_key} {app.source} {app.app_type} {app.winget_id}"
+                    f"{app.uninstall_registry_key} {app.source} {app.app_type} {app.winget_id} "
+                    f"{app.last_used_date}"
                 ).lower()
                 if search_text not in searchable:
                     continue
@@ -1022,7 +1025,8 @@ class AppListWindow(ctk.CTk):
     def _apply_sort(self):
         attr_map = {
             "name": "name", "publisher": "publisher", "version": "version",
-            "install_date": "install_date", "install_location": "install_location",
+            "install_date": "install_date", "last_used_date": "last_used_date",
+            "install_location": "install_location",
             "registry_key": "uninstall_registry_key", "type": "app_type",
             "source": "source", "size": "estimated_size", "architecture": "architecture",
             "winget_id": "winget_id", "upgrade_available": "upgrade_available",

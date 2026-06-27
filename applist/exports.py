@@ -28,6 +28,8 @@ def write_txt_export(apps: List[Application], filepath: str):
                 f.write(f"       Version:          {app.version}\n")
             if app.install_date:
                 f.write(f"       Install Date:     {app.install_date}\n")
+            if app.last_used_date:
+                f.write(f"       Last Used:        {app.last_used_date}\n")
             if app.install_location:
                 f.write(f"       Install Location: {app.install_location}\n")
             if app.uninstall_registry_key:
@@ -54,6 +56,7 @@ def write_csv_export(apps: List[Application], filepath: str):
             "Publisher",
             "Version",
             "Install Date",
+            "Last Used",
             "Install Location",
             "Registry Key",
             "Uninstall Command",
@@ -107,7 +110,7 @@ def write_markdown_export(apps: List[Application], filepath: str):
         name = app.name.replace("|", "\\|")
         pub = app.publisher.replace("|", "\\|")
         wid = app.winget_id if app.winget_id else ""
-        return f"| {i} | {name} | {pub} | {app.version} | {app.install_date} | {app.estimated_size} | {wid} |\n"
+        return f"| {i} | {name} | {pub} | {app.version} | {app.install_date} | {app.last_used_date} | {app.estimated_size} | {wid} |\n"
 
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(f"# Application Inventory — {hostname}\n\n")
@@ -120,8 +123,8 @@ def write_markdown_export(apps: List[Application], filepath: str):
             if not group:
                 continue
             f.write(f"## {group_name} ({len(group)})\n\n")
-            f.write("| # | Name | Publisher | Version | Install Date | Size | Winget ID |\n")
-            f.write("|---|------|-----------|---------|--------------|------|-----------|\n")
+            f.write("| # | Name | Publisher | Version | Install Date | Last Used | Size | Winget ID |\n")
+            f.write("|---|------|-----------|---------|--------------|-----------|------|-----------|\n")
             for i, app in enumerate(group, 1):
                 f.write(_md_row(i, app))
             f.write("\n")
@@ -344,6 +347,7 @@ def write_html_export(apps: List[Application], filepath: str):
             f"<td>{html_mod.escape(app.publisher)}</td>"
             f"<td>{html_mod.escape(app.version)}</td>"
             f"<td>{html_mod.escape(app.install_date)}</td>"
+            f"<td>{html_mod.escape(app.last_used_date)}</td>"
             f"<td>{html_mod.escape(app.app_type)}</td>"
             f"<td>{html_mod.escape(app.source)}</td>"
             f"<td>{html_mod.escape(app.estimated_size)}</td>"
@@ -425,14 +429,15 @@ tr.update td {{ color: var(--blue); }}
   <th onclick="sortTable(1)">Publisher</th>
   <th onclick="sortTable(2)">Version</th>
   <th onclick="sortTable(3)">Installed</th>
-  <th onclick="sortTable(4)">Type</th>
-  <th onclick="sortTable(5)">Source</th>
-  <th onclick="sortTable(6)">Size</th>
-  <th onclick="sortTable(7)">Winget ID</th>
-  <th onclick="sortTable(8)">Upgrade</th>
-  <th onclick="sortTable(9)">Pin</th>
-  <th onclick="sortTable(10)">Arch</th>
-  <th onclick="sortTable(11)">Location</th>
+  <th onclick="sortTable(4)">Last Used</th>
+  <th onclick="sortTable(5)">Type</th>
+  <th onclick="sortTable(6)">Source</th>
+  <th onclick="sortTable(7)">Size</th>
+  <th onclick="sortTable(8)">Winget ID</th>
+  <th onclick="sortTable(9)">Upgrade</th>
+  <th onclick="sortTable(10)">Pin</th>
+  <th onclick="sortTable(11)">Arch</th>
+  <th onclick="sortTable(12)">Location</th>
 </tr></thead>
 <tbody>
 {table_body}

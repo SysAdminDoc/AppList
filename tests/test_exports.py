@@ -20,7 +20,14 @@ from applist.models import Application
 class ExportTests(unittest.TestCase):
     def test_export_writers_emit_expected_content(self):
         apps = [
-            Application(name="Alpha", publisher="Acme", version="1.0", app_type="Desktop", source="HKLM64"),
+            Application(
+                name="Alpha",
+                publisher="Acme",
+                version="1.0",
+                last_used_date="2026-06-27 14:30:05",
+                app_type="Desktop",
+                source="HKLM64",
+            ),
             Application(name="requests", version="2.32.3", app_type="Python Package", source="Python (pip)"),
             Application(name="git", version="2.45.0", app_type="Chocolatey", source="Chocolatey"),
         ]
@@ -44,14 +51,22 @@ class ExportTests(unittest.TestCase):
             with csv_path.open(encoding="utf-8-sig", newline="") as f:
                 rows = list(csv.reader(f))
             self.assertEqual(rows[0][0], "Application Name")
+            self.assertIn("Last Used", rows[0])
             self.assertEqual(rows[1][0], "Alpha")
+            self.assertIn("2026-06-27 14:30:05", rows[1])
 
             data = json.loads(json_path.read_text(encoding="utf-8"))
             self.assertEqual(data["total"], 3)
             self.assertEqual(data["applications"][0]["name"], "Alpha")
+            self.assertEqual(data["applications"][0]["last_used_date"], "2026-06-27 14:30:05")
 
-            self.assertIn("Python Packages (pip)", md_path.read_text(encoding="utf-8"))
-            self.assertIn("<table", html_path.read_text(encoding="utf-8"))
+            markdown = md_path.read_text(encoding="utf-8")
+            html = html_path.read_text(encoding="utf-8")
+            self.assertIn("Last Used", markdown)
+            self.assertIn("2026-06-27 14:30:05", markdown)
+            self.assertIn("<table", html)
+            self.assertIn("Last Used", html)
+            self.assertIn("2026-06-27 14:30:05", html)
             self.assertEqual(pip_count, 1)
             self.assertIn("requests==2.32.3", pip_path.read_text(encoding="utf-8"))
             self.assertEqual(choco_count, 1)

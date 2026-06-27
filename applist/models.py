@@ -11,6 +11,7 @@ class Application:
     publisher: str = ""
     version: str = ""
     install_date: str = ""
+    last_used_date: str = ""
     install_location: str = ""
     uninstall_registry_key: str = ""
     uninstall_command: str = ""
@@ -32,6 +33,7 @@ class Application:
             self.publisher,
             self.version,
             self.install_date,
+            self.last_used_date,
             self.install_location,
             self.uninstall_registry_key,
             self.uninstall_command,

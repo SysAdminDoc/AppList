@@ -1,10 +1,13 @@
 import json
+import struct
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
 import applist.scanner as scanner_module
+from applist.models import Application
 from applist.scanner import ApplicationScanner
 
 
@@ -52,6 +55,9 @@ class FakeWinreg:
 
 
 class ScannerTests(unittest.TestCase):
+    def _filetime(self, value: datetime) -> int:
+        return int((value - scanner_module.FILETIME_EPOCH).total_seconds() * 10_000_000)
+
     def test_registry_scan_deduplicates_and_parses_fields(self):
         fake_registry = {
             r"SOFTWARE\TestApps": {
@@ -144,6 +150,36 @@ class ScannerTests(unittest.TestCase):
         self.assertEqual(len(apps), 1)
         self.assertEqual(apps[0].name, "requests")
         self.assertEqual(apps[0].app_type, "Python Package")
+
+    def test_userassist_timestamp_parser_reads_filetime_offset(self):
+        scanner = ApplicationScanner()
+        payload = bytearray(72)
+        struct.pack_into("<Q", payload, 60, self._filetime(datetime(2026, 6, 27, 14, 30, 5)))
+
+        self.assertEqual(scanner._extract_userassist_timestamp(bytes(payload)), "2026-06-27 14:30:05")
+
+    def test_last_used_enrichment_prefers_newest_matching_signal(self):
+        scanner = ApplicationScanner()
+        scanner.applications = [
+            Application(name="Alpha App", install_location=""),
+            Application(name="[Folder] BetaTool", install_location=""),
+        ]
+
+        alpha_key = scanner._normalize_name("Alpha App")
+        beta_key = scanner._normalize_name("BetaTool")
+        with mock.patch.object(
+            scanner,
+            "_build_userassist_last_used_map",
+            return_value={alpha_key: "2026-06-27 09:00:00", beta_key: "2026-06-26 09:00:00"},
+        ), mock.patch.object(
+            scanner,
+            "_build_prefetch_last_used_map",
+            return_value={alpha_key: "2026-06-27 11:00:00", beta_key: "2026-06-27 10:00:00"},
+        ):
+            scanner._apply_last_used_dates()
+
+        self.assertEqual(scanner.applications[0].last_used_date, "2026-06-27 11:00:00")
+        self.assertEqual(scanner.applications[1].last_used_date, "2026-06-27 10:00:00")
 
 
 if __name__ == "__main__":
