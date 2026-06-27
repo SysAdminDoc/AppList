@@ -35,6 +35,22 @@ from .exports import (
     write_choco_export,
 )
 
+PAGE_SIZE = 500
+
+
+def get_page_bounds(total_rows: int, current_page: int, page_size: int = PAGE_SIZE):
+    """Return a clamped page index plus start/end offsets for a filtered row count."""
+    if page_size <= 0:
+        page_size = PAGE_SIZE
+    if total_rows <= 0:
+        return 0, 0, 0
+    max_page = (total_rows - 1) // page_size
+    page = max(0, min(current_page, max_page))
+    start = page * page_size
+    end = min(start + page_size, total_rows)
+    return page, start, end
+
+
 try:
     import winreg
 except ImportError:
@@ -184,6 +200,8 @@ class AppListWindow(ctk.CTk):
         self.scan_thread = None
         self.sort_column = "name"
         self.sort_reverse = False
+        self.current_page = 0
+        self.page_size = PAGE_SIZE
         self.is_scanning = False
         self.scan_has_run = False
 
@@ -194,6 +212,7 @@ class AppListWindow(ctk.CTk):
         self._create_main_content()
         self._create_status_bar()
         self._set_export_buttons_enabled(False)
+        self._update_pagination_controls(0, 0)
         self._show_empty_state(
             "No inventory yet",
             "Run a scan to discover installed apps, package inventory, and recent-use signals.",
@@ -516,6 +535,27 @@ class AppListWindow(ctk.CTk):
         )
         export_hint.pack(side="left")
 
+        self.pagination_frame = ctk.CTkFrame(bottom_row, fg_color="transparent")
+        self.pagination_frame.pack(side="left", padx=(18, 0))
+
+        self.prev_page_btn = SecondaryButton(
+            self.pagination_frame, text="Previous", width=92, command=self._previous_page
+        )
+        self.prev_page_btn.pack(side="left", padx=(0, 6))
+
+        self.page_label = ctk.CTkLabel(
+            self.pagination_frame,
+            text="Page 0/0",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color=COLORS["text_muted"],
+        )
+        self.page_label.pack(side="left", padx=(0, 6))
+
+        self.next_page_btn = SecondaryButton(
+            self.pagination_frame, text="Next", width=72, command=self._next_page
+        )
+        self.next_page_btn.pack(side="left")
+
         export_frame = ctk.CTkFrame(bottom_row, fg_color="transparent")
         export_frame.pack(side="right")
 
@@ -728,6 +768,22 @@ class AppListWindow(ctk.CTk):
         ):
             button.configure(state=state)
 
+    def _update_pagination_controls(self, start: int, end: int):
+        total = len(self.filtered_apps)
+        page_count = 0 if total == 0 else ((total - 1) // self.page_size) + 1
+        if total == 0:
+            self.page_label.configure(text="Page 0/0")
+        else:
+            self.page_label.configure(
+                text=f"Page {self.current_page + 1}/{page_count} ({start + 1}-{end})"
+            )
+
+        can_page = total > self.page_size and not self.is_scanning
+        self.prev_page_btn.configure(state="normal" if can_page and self.current_page > 0 else "disabled")
+        self.next_page_btn.configure(
+            state="normal" if can_page and self.current_page < page_count - 1 else "disabled"
+        )
+
     def _set_status_tone(self, tone: str):
         color_map = {
             "idle": COLORS["accent_success"],
@@ -761,6 +817,7 @@ class AppListWindow(ctk.CTk):
         self.filter_var.set("All Types")
         self.source_filter_var.set("All Sources")
         self.upgrade_filter_var.set("Any Upgrade State")
+        self.current_page = 0
         self._apply_filters()
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -788,6 +845,7 @@ class AppListWindow(ctk.CTk):
         self.applications = []
         self.filtered_apps = []
         self.tree_iid_to_index = {}
+        self.current_page = 0
 
         self.stats_total.set_value("...")
         self.stats_desktop.set_value("...")
@@ -832,6 +890,7 @@ class AppListWindow(ctk.CTk):
         self.scan_has_run = True
         self.applications = apps
         self.filtered_apps = apps.copy()
+        self.current_page = 0
 
         desktop_count = sum(1 for a in apps if a.app_type == "Desktop")
         store_count = sum(1 for a in apps if a.app_type == "Store App")
@@ -893,7 +952,13 @@ class AppListWindow(ctk.CTk):
             self.tree.delete(item)
         self.tree_iid_to_index = {}
 
-        for index, app in enumerate(self.filtered_apps):
+        self.current_page, start, end = get_page_bounds(
+            len(self.filtered_apps), self.current_page, self.page_size
+        )
+        page_apps = self.filtered_apps[start:end]
+
+        for offset, app in enumerate(page_apps):
+            index = start + offset
             status = ""
             row_tags = ()
             if app.ghost:
@@ -916,13 +981,19 @@ class AppListWindow(ctk.CTk):
             ), tags=row_tags)
 
         if self.applications:
-            self.count_label.configure(text=f"Showing {len(self.filtered_apps)} of {len(self.applications)}")
+            if self.filtered_apps:
+                self.count_label.configure(
+                    text=f"Showing {start + 1}-{end} of {len(self.filtered_apps)} filtered / {len(self.applications)} total"
+                )
+            else:
+                self.count_label.configure(text=f"Showing 0 of {len(self.applications)}")
         elif self.scan_has_run:
             self.count_label.configure(text="0 applications found")
         else:
             self.count_label.configure(text="No scan performed yet")
 
         self._set_export_buttons_enabled(bool(self.filtered_apps) and not self.is_scanning)
+        self._update_pagination_controls(start, end)
 
         if self.is_scanning:
             self._show_empty_state(
@@ -951,7 +1022,19 @@ class AppListWindow(ctk.CTk):
         else:
             self._hide_empty_state()
 
+    def _previous_page(self):
+        if self.current_page > 0:
+            self.current_page -= 1
+            self._populate_treeview()
+
+    def _next_page(self):
+        page_count = 0 if not self.filtered_apps else ((len(self.filtered_apps) - 1) // self.page_size) + 1
+        if self.current_page < page_count - 1:
+            self.current_page += 1
+            self._populate_treeview()
+
     def _apply_filters(self):
+        self.current_page = 0
         search_text = self.search_var.get().lower()
         filter_type = self.filter_var.get()
         source_filter = self.source_filter_var.get()
