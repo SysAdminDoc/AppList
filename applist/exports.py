@@ -32,12 +32,18 @@ def write_txt_export(apps: List[Application], filepath: str):
                 f.write(f"       Last Used:        {app.last_used_date}\n")
             if app.install_location:
                 f.write(f"       Install Location: {app.install_location}\n")
+            if app.executable_path:
+                f.write(f"       Executable:       {app.executable_path}\n")
             if app.uninstall_registry_key:
                 f.write(f"       Registry Key:     {app.uninstall_registry_key}\n")
             if app.uninstall_command:
                 f.write(f"       Uninstall Cmd:    {app.uninstall_command}\n")
             if app.estimated_size:
                 f.write(f"       Size:             {app.estimated_size}\n")
+            if app.sha256_hash:
+                f.write(f"       SHA-256:          {app.sha256_hash}\n")
+            if app.virustotal_url:
+                f.write(f"       VirusTotal:       {app.virustotal_url}\n")
             f.write(f"       Type:             {app.app_type}\n")
             f.write(f"       Source:           {app.source}\n")
             f.write("\n")
@@ -58,6 +64,7 @@ def write_csv_export(apps: List[Application], filepath: str):
             "Install Date",
             "Last Used",
             "Install Location",
+            "Executable Path",
             "Registry Key",
             "Uninstall Command",
             "Estimated Size",
@@ -67,6 +74,8 @@ def write_csv_export(apps: List[Application], filepath: str):
             "Winget ID",
             "Update Available",
             "Pin Status",
+            "SHA-256",
+            "VirusTotal URL",
         ])
         for app in apps:
             writer.writerow(app.to_export_row())
@@ -110,7 +119,11 @@ def write_markdown_export(apps: List[Application], filepath: str):
         name = app.name.replace("|", "\\|")
         pub = app.publisher.replace("|", "\\|")
         wid = app.winget_id if app.winget_id else ""
-        return f"| {i} | {name} | {pub} | {app.version} | {app.install_date} | {app.last_used_date} | {app.estimated_size} | {wid} |\n"
+        vt_link = f"[Report]({app.virustotal_url})" if app.virustotal_url else ""
+        return (
+            f"| {i} | {name} | {pub} | {app.version} | {app.install_date} | "
+            f"{app.last_used_date} | {app.estimated_size} | {wid} | {app.sha256_hash} | {vt_link} |\n"
+        )
 
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(f"# Application Inventory — {hostname}\n\n")
@@ -123,8 +136,8 @@ def write_markdown_export(apps: List[Application], filepath: str):
             if not group:
                 continue
             f.write(f"## {group_name} ({len(group)})\n\n")
-            f.write("| # | Name | Publisher | Version | Install Date | Last Used | Size | Winget ID |\n")
-            f.write("|---|------|-----------|---------|--------------|-----------|------|-----------|\n")
+            f.write("| # | Name | Publisher | Version | Install Date | Last Used | Size | Winget ID | SHA-256 | VirusTotal |\n")
+            f.write("|---|------|-----------|---------|--------------|-----------|------|-----------|---------|------------|\n")
             for i, app in enumerate(group, 1):
                 f.write(_md_row(i, app))
             f.write("\n")
@@ -340,6 +353,10 @@ def write_html_export(apps: List[Application], filepath: str):
     for app in apps:
         pin = html_mod.escape(app.pin_status) if app.pin_status else ""
         upgrade = html_mod.escape(app.upgrade_available) if app.upgrade_available else ""
+        vt_link = (
+            f'<a href="{html_mod.escape(app.virustotal_url)}" target="_blank" rel="noopener">Report</a>'
+            if app.virustotal_url else ""
+        )
         ghost_cls = ' class="ghost"' if app.ghost else (' class="update"' if app.upgrade_available else "")
         rows_html.append(
             f"<tr{ghost_cls}>"
@@ -352,6 +369,8 @@ def write_html_export(apps: List[Application], filepath: str):
             f"<td>{html_mod.escape(app.source)}</td>"
             f"<td>{html_mod.escape(app.estimated_size)}</td>"
             f"<td>{html_mod.escape(app.winget_id)}</td>"
+            f"<td>{html_mod.escape(app.sha256_hash)}</td>"
+            f"<td>{vt_link}</td>"
             f"<td>{upgrade}</td>"
             f"<td>{pin}</td>"
             f"<td>{html_mod.escape(app.architecture)}</td>"
@@ -407,6 +426,8 @@ td {{ padding: 8px 12px; border-bottom: 1px solid var(--border); white-space: no
 tr:hover td {{ background: var(--overlay); }}
 tr.ghost td {{ color: var(--yellow); }}
 tr.update td {{ color: var(--blue); }}
+a {{ color: var(--blue); text-decoration: none; }}
+a:hover {{ text-decoration: underline; }}
 </style>
 </head>
 <body>
@@ -434,10 +455,12 @@ tr.update td {{ color: var(--blue); }}
   <th onclick="sortTable(6)">Source</th>
   <th onclick="sortTable(7)">Size</th>
   <th onclick="sortTable(8)">Winget ID</th>
-  <th onclick="sortTable(9)">Upgrade</th>
-  <th onclick="sortTable(10)">Pin</th>
-  <th onclick="sortTable(11)">Arch</th>
-  <th onclick="sortTable(12)">Location</th>
+  <th onclick="sortTable(9)">SHA-256</th>
+  <th onclick="sortTable(10)">VirusTotal</th>
+  <th onclick="sortTable(11)">Upgrade</th>
+  <th onclick="sortTable(12)">Pin</th>
+  <th onclick="sortTable(13)">Arch</th>
+  <th onclick="sortTable(14)">Location</th>
 </tr></thead>
 <tbody>
 {table_body}

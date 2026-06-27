@@ -558,7 +558,7 @@ class AppListWindow(ctk.CTk):
         columns = (
             "name", "publisher", "version", "install_date", "last_used_date",
             "type", "source", "upgrade_available", "pin_status", "winget_id",
-            "size", "architecture", "install_location", "registry_key",
+            "sha256_hash", "virustotal", "size", "architecture", "install_location", "registry_key",
         )
 
         # Create treeview with scrollbar
@@ -598,6 +598,8 @@ class AppListWindow(ctk.CTk):
             "upgrade_available": ("Upgrade", 175),
             "pin_status": ("Pin", 120),
             "winget_id": ("Winget ID", 200),
+            "sha256_hash": ("SHA-256", 240),
+            "virustotal": ("VirusTotal", 105),
             "size": ("Size", 90),
             "architecture": ("Arch", 80),
             "install_location": ("Location", 280),
@@ -654,10 +656,12 @@ class AppListWindow(ctk.CTk):
         self.context_menu.add_command(label="Copy Install Location", command=self._copy_location)
         self.context_menu.add_command(label="Copy Registry Key", command=self._copy_registry)
         self.context_menu.add_command(label="Copy Uninstall Command", command=self._copy_uninstall)
+        self.context_menu.add_command(label="Copy SHA-256", command=self._copy_sha256)
         self.context_menu.add_separator()
         self.context_menu.add_command(label="Open Install Location", command=self._open_location)
         self.context_menu.add_command(label="Open Registry Key in Regedit", command=self._open_registry_key)
         self.context_menu.add_command(label="Lookup on Winget", command=self._lookup_winget)
+        self.context_menu.add_command(label="Open VirusTotal Report", command=self._open_virustotal)
         self.context_menu.add_separator()
         self.context_menu.add_command(label="Uninstall", command=self._uninstall_app)
 
@@ -906,7 +910,8 @@ class AppListWindow(ctk.CTk):
                 app.name, app.publisher, app.version, app.install_date,
                 app.last_used_date,
                 app.app_type, app.source, status, app.pin_status,
-                app.winget_id, app.estimated_size, app.architecture,
+                app.winget_id, app.sha256_hash, "Report" if app.virustotal_url else "",
+                app.estimated_size, app.architecture,
                 app.install_location, app.uninstall_registry_key,
             ), tags=row_tags)
 
@@ -959,7 +964,7 @@ class AppListWindow(ctk.CTk):
                 searchable = (
                     f"{app.name} {app.publisher} {app.version} {app.install_location} "
                     f"{app.uninstall_registry_key} {app.source} {app.app_type} {app.winget_id} "
-                    f"{app.last_used_date}"
+                    f"{app.last_used_date} {app.executable_path} {app.sha256_hash} {app.virustotal_url}"
                 ).lower()
                 if search_text not in searchable:
                     continue
@@ -1030,7 +1035,8 @@ class AppListWindow(ctk.CTk):
             "registry_key": "uninstall_registry_key", "type": "app_type",
             "source": "source", "size": "estimated_size", "architecture": "architecture",
             "winget_id": "winget_id", "upgrade_available": "upgrade_available",
-            "pin_status": "pin_status",
+            "pin_status": "pin_status", "sha256_hash": "sha256_hash",
+            "virustotal": "virustotal_url",
         }
         attr = attr_map.get(self.sort_column, "name")
         self.filtered_apps.sort(key=lambda x: getattr(x, attr, "").lower(), reverse=self.sort_reverse)
@@ -1288,12 +1294,16 @@ class AppListWindow(ctk.CTk):
         has_location = bool(app.install_location and os.path.exists(app.install_location))
         has_registry = bool(app.uninstall_registry_key)
         has_uninstall = bool(app.uninstall_command)
+        has_hash = bool(app.sha256_hash)
+        has_virustotal = bool(app.virustotal_url)
         self.context_menu.entryconfig(1, state="normal" if app.install_location else "disabled")
         self.context_menu.entryconfig(2, state="normal" if has_registry else "disabled")
         self.context_menu.entryconfig(3, state="normal" if has_uninstall else "disabled")
-        self.context_menu.entryconfig(5, state="normal" if has_location else "disabled")
-        self.context_menu.entryconfig(6, state="normal" if has_registry else "disabled")
-        self.context_menu.entryconfig(9, state="normal" if has_uninstall else "disabled")
+        self.context_menu.entryconfig(4, state="normal" if has_hash else "disabled")
+        self.context_menu.entryconfig(6, state="normal" if has_location else "disabled")
+        self.context_menu.entryconfig(7, state="normal" if has_registry else "disabled")
+        self.context_menu.entryconfig(9, state="normal" if has_virustotal else "disabled")
+        self.context_menu.entryconfig(11, state="normal" if has_uninstall else "disabled")
 
     def _get_selected_app(self) -> Optional[Application]:
         selection = self.tree.selection()
@@ -1319,6 +1329,11 @@ class AppListWindow(ctk.CTk):
         if app and app.uninstall_registry_key:
             self._copy_to_clipboard(app.uninstall_registry_key, "Registry key")
 
+    def _copy_sha256(self):
+        app = self._get_selected_app()
+        if app and app.sha256_hash:
+            self._copy_to_clipboard(app.sha256_hash, "SHA-256 hash")
+
     def _copy_to_clipboard(self, value: str, label: str):
         self.clipboard_clear()
         self.clipboard_append(value)
@@ -1338,6 +1353,12 @@ class AppListWindow(ctk.CTk):
             self._copy_to_clipboard(app.uninstall_command, "Uninstall command")
         else:
             messagebox.showinfo("Not Available", "No uninstall command available for this application.")
+
+    def _open_virustotal(self):
+        app = self._get_selected_app()
+        if app and app.virustotal_url:
+            webbrowser.open(app.virustotal_url)
+            self._update_status(f"Opened VirusTotal report for {app.name}.")
 
     def _open_registry_key(self):
         app = self._get_selected_app()

@@ -1,6 +1,7 @@
 """Application scanner engine — discovers installed software from multiple sources."""
 
 import codecs
+import hashlib
 import json
 import os
 import re
@@ -23,6 +24,17 @@ except ImportError:
 
 FILETIME_EPOCH = datetime(1601, 1, 1)
 USERASSIST_ROOT = r"Software\Microsoft\Windows\CurrentVersion\Explorer\UserAssist"
+HASH_CACHE_FILENAME = "wingetlist-sha-cache.json"
+HASH_SKIP_EXECUTABLE_PARTS = (
+    "unins",
+    "uninstall",
+    "setup",
+    "install",
+    "update",
+    "crash",
+    "helper",
+    "service",
+)
 
 
 class ApplicationScanner:
@@ -257,11 +269,11 @@ class ApplicationScanner:
         if not self.applications:
             return
 
-        self._update_status("Phase 8/8: Reading last-used activity...")
-        self._update_progress(88)
+        self._update_status("Phase 8/9: Reading last-used activity...")
+        self._update_progress(84)
 
         userassist_map = self._build_userassist_last_used_map()
-        self._update_progress(92)
+        self._update_progress(88)
         prefetch_map = self._build_prefetch_last_used_map()
         if not userassist_map and not prefetch_map:
             return
@@ -272,6 +284,178 @@ class ApplicationScanner:
                 last_used = self._newer_timestamp(last_used, userassist_map.get(candidate, ""))
                 last_used = self._newer_timestamp(last_used, prefetch_map.get(candidate, ""))
             app.last_used_date = last_used
+
+    def _hash_cache_path(self) -> Path:
+        appdata = os.environ.get("APPDATA")
+        base_dir = Path(appdata) / "AppList" if appdata else Path.home() / ".applist"
+        return base_dir / HASH_CACHE_FILENAME
+
+    def _load_hash_cache(self) -> Dict[str, Dict[str, object]]:
+        cache_path = self._hash_cache_path()
+        try:
+            if not cache_path.is_file():
+                return {}
+            with open(cache_path, encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+        except (OSError, json.JSONDecodeError, TypeError) as e:
+            self._log_warning(f"Hash cache could not be read: {e}")
+            return {}
+
+    def _save_hash_cache(self, cache: Dict[str, Dict[str, object]]):
+        cache_path = self._hash_cache_path()
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(cache_path, "w", encoding="utf-8") as f:
+                json.dump(cache, f, indent=2, sort_keys=True)
+        except OSError as e:
+            self._log_warning(f"Hash cache could not be saved: {e}")
+
+    def _hash_file_sha256(self, filepath: str) -> str:
+        digest = hashlib.sha256()
+        with open(filepath, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    def _get_cached_sha256(self, filepath: str, cache: Dict[str, Dict[str, object]]) -> tuple:
+        try:
+            resolved = str(Path(filepath).resolve())
+            stat = os.stat(resolved)
+        except OSError:
+            return "", False
+
+        cached = cache.get(resolved)
+        if (
+            isinstance(cached, dict)
+            and cached.get("size") == stat.st_size
+            and cached.get("mtime") == stat.st_mtime
+            and isinstance(cached.get("sha256"), str)
+        ):
+            return str(cached["sha256"]), False
+
+        try:
+            sha256_hash = self._hash_file_sha256(resolved)
+        except OSError as e:
+            self._log_warning(f"Could not hash {resolved}: {e}")
+            return "", False
+
+        cache[resolved] = {
+            "sha256": sha256_hash,
+            "size": stat.st_size,
+            "mtime": stat.st_mtime,
+            "cached_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        return sha256_hash, True
+
+    def _list_executables(self, location: str) -> List[str]:
+        if not location:
+            return []
+        expanded = os.path.expandvars(location.strip().strip('"'))
+        if os.path.isfile(expanded) and expanded.lower().endswith(".exe"):
+            return [expanded]
+        if not os.path.isdir(expanded):
+            return []
+
+        executables: List[str] = []
+        child_dirs: List[str] = []
+        try:
+            with os.scandir(expanded) as entries:
+                for entry in entries:
+                    try:
+                        if entry.is_file() and entry.name.lower().endswith(".exe"):
+                            executables.append(entry.path)
+                        elif entry.is_dir():
+                            child_dirs.append(entry.path)
+                    except OSError:
+                        continue
+        except (OSError, PermissionError):
+            return []
+
+        if executables:
+            return executables
+
+        for child_dir in child_dirs[:20]:
+            try:
+                with os.scandir(child_dir) as entries:
+                    for entry in entries:
+                        if entry.is_file() and entry.name.lower().endswith(".exe"):
+                            executables.append(entry.path)
+            except (OSError, PermissionError):
+                continue
+        return executables
+
+    def _score_executable_candidate(self, app: Application, executable_path: str) -> float:
+        name = os.path.basename(executable_path)
+        stem, _ = os.path.splitext(name)
+        stem_key = self._normalize_name(stem)
+        app_keys = self._candidate_keys(app.name)
+        score = 0.0
+
+        if stem_key in app_keys:
+            score += 100
+        elif any(stem_key and (stem_key in key or key in stem_key) for key in app_keys):
+            score += 55
+
+        lowered = name.lower()
+        if any(part in lowered for part in HASH_SKIP_EXECUTABLE_PARTS):
+            score -= 35
+        else:
+            score += 15
+
+        try:
+            score += min(os.path.getsize(executable_path) / (1024 * 1024), 25)
+        except OSError:
+            pass
+        return score
+
+    def _find_primary_executable(self, app: Application) -> str:
+        candidates = []
+        if app.executable_path:
+            candidates.extend(self._list_executables(app.executable_path))
+        candidates.extend(self._list_executables(app.install_location))
+        if not candidates:
+            return ""
+        deduped = sorted(set(candidates), key=lambda path: self._score_executable_candidate(app, path), reverse=True)
+        return deduped[0] if deduped else ""
+
+    def _apply_virustotal_hashes(self):
+        """Hash primary executables and attach VirusTotal report URLs."""
+        if not self.applications:
+            return
+
+        self._update_status("Phase 9/9: Hashing executable files...")
+        self._update_progress(92)
+
+        cache = self._load_hash_cache()
+        cache_changed = False
+        failures = 0
+        total = len(self.applications)
+
+        for index, app in enumerate(self.applications):
+            if self._cancelled:
+                break
+            executable_path = self._find_primary_executable(app)
+            if not executable_path:
+                continue
+
+            sha256_hash, changed = self._get_cached_sha256(executable_path, cache)
+            if not sha256_hash:
+                failures += 1
+                continue
+
+            cache_changed = cache_changed or changed
+            app.executable_path = executable_path
+            app.sha256_hash = sha256_hash
+            app.virustotal_url = f"https://www.virustotal.com/gui/file/{sha256_hash}"
+
+            if index % 10 == 0:
+                self._update_progress(92 + (index / max(total, 1)) * 7)
+
+        if cache_changed:
+            self._save_hash_cache(cache)
+        if failures:
+            self._log_warning(f"{failures} executable hashes could not be calculated.")
 
     def _get_registry_value(self, key, value_name: str, default: str = "") -> str:
         """Safely get a registry value."""
@@ -511,6 +695,7 @@ class ApplicationScanner:
                     app = Application(
                         name=f"[Folder] {subdir}",
                         install_location=full_path,
+                        executable_path=exe_path,
                         source="Program Files Scan",
                         architecture=arch,
                         app_type="Desktop (Unregistered)",
@@ -889,7 +1074,7 @@ class ApplicationScanner:
 
         # Scan registry (primary source)
         if source_enabled("registry"):
-            self._update_status("Phase 1/8: Scanning Windows Registry...")
+            self._update_status("Phase 1/9: Scanning Windows Registry...")
             registry_apps = self.scan_registry()
             self.applications.extend(registry_apps)
 
@@ -898,7 +1083,7 @@ class ApplicationScanner:
 
         # Scan Store apps
         if source_enabled("store"):
-            self._update_status("Phase 2/8: Scanning Microsoft Store apps...")
+            self._update_status("Phase 2/9: Scanning Microsoft Store apps...")
             store_apps = self.scan_store_apps()
             self.applications.extend(store_apps)
 
@@ -907,7 +1092,7 @@ class ApplicationScanner:
 
         # Scan Program Files
         if source_enabled("program_files"):
-            self._update_status("Phase 3/8: Scanning Program Files...")
+            self._update_status("Phase 3/9: Scanning Program Files...")
             folder_apps = self.scan_program_files()
             self.applications.extend(folder_apps)
 
@@ -916,7 +1101,7 @@ class ApplicationScanner:
 
         # Scan Chocolatey packages
         if source_enabled("chocolatey"):
-            self._update_status("Phase 4/8: Scanning Chocolatey packages...")
+            self._update_status("Phase 4/9: Scanning Chocolatey packages...")
             choco_apps = self.scan_chocolatey()
             self.applications.extend(choco_apps)
 
@@ -925,7 +1110,7 @@ class ApplicationScanner:
 
         # Scan Scoop packages
         if source_enabled("scoop"):
-            self._update_status("Phase 5/8: Scanning Scoop packages...")
+            self._update_status("Phase 5/9: Scanning Scoop packages...")
             scoop_apps = self.scan_scoop()
             self.applications.extend(scoop_apps)
 
@@ -934,7 +1119,7 @@ class ApplicationScanner:
 
         # Scan pip packages
         if source_enabled("pip"):
-            self._update_status("Phase 6/8: Scanning Python (pip) packages...")
+            self._update_status("Phase 6/9: Scanning Python (pip) packages...")
             pip_apps = self.scan_pip()
             self.applications.extend(pip_apps)
 
@@ -943,7 +1128,7 @@ class ApplicationScanner:
 
         # Cross-reference with winget for package IDs and upgrade status
         if source_enabled("winget"):
-            self._update_status("Phase 7/8: Cross-referencing with winget...")
+            self._update_status("Phase 7/9: Cross-referencing with winget...")
             winget_map = self._build_winget_map()
             if winget_map:
                 for app in self.applications:
@@ -966,6 +1151,7 @@ class ApplicationScanner:
                         app.pin_status = pin_map[app.winget_id]
 
         self._apply_last_used_dates()
+        self._apply_virustotal_hashes()
 
         # Ghost entry detection: flag apps whose install location doesn't exist
         for app in self.applications:

@@ -1,4 +1,5 @@
 import json
+import hashlib
 import struct
 import tempfile
 import unittest
@@ -180,6 +181,34 @@ class ScannerTests(unittest.TestCase):
 
         self.assertEqual(scanner.applications[0].last_used_date, "2026-06-27 11:00:00")
         self.assertEqual(scanner.applications[1].last_used_date, "2026-06-27 10:00:00")
+
+    def test_virustotal_hash_enrichment_hashes_and_reuses_cache(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            exe_path = root / "Alpha.exe"
+            exe_path.write_bytes(b"alpha executable")
+            cache_path = root / "wingetlist-sha-cache.json"
+            expected_hash = hashlib.sha256(b"alpha executable").hexdigest()
+
+            scanner = ApplicationScanner()
+            scanner.applications = [Application(name="Alpha", executable_path=str(exe_path))]
+
+            with mock.patch.object(scanner, "_hash_cache_path", return_value=cache_path):
+                scanner._apply_virustotal_hashes()
+
+            app = scanner.applications[0]
+            self.assertEqual(app.sha256_hash, expected_hash)
+            self.assertEqual(app.virustotal_url, f"https://www.virustotal.com/gui/file/{expected_hash}")
+            self.assertTrue(cache_path.is_file())
+
+            app.sha256_hash = ""
+            app.virustotal_url = ""
+            with mock.patch.object(scanner, "_hash_cache_path", return_value=cache_path), mock.patch.object(
+                scanner, "_hash_file_sha256", side_effect=AssertionError("cache was not reused")
+            ):
+                scanner._apply_virustotal_hashes()
+
+            self.assertEqual(app.sha256_hash, expected_hash)
 
 
 if __name__ == "__main__":

@@ -25,6 +25,9 @@ class ExportTests(unittest.TestCase):
                 publisher="Acme",
                 version="1.0",
                 last_used_date="2026-06-27 14:30:05",
+                executable_path=r"C:\Alpha\alpha.exe",
+                sha256_hash="a" * 64,
+                virustotal_url="https://www.virustotal.com/gui/file/" + ("a" * 64),
                 app_type="Desktop",
                 source="HKLM64",
             ),
@@ -52,21 +55,29 @@ class ExportTests(unittest.TestCase):
                 rows = list(csv.reader(f))
             self.assertEqual(rows[0][0], "Application Name")
             self.assertIn("Last Used", rows[0])
+            self.assertIn("SHA-256", rows[0])
+            self.assertIn("VirusTotal URL", rows[0])
             self.assertEqual(rows[1][0], "Alpha")
             self.assertIn("2026-06-27 14:30:05", rows[1])
+            self.assertIn("a" * 64, rows[1])
 
             data = json.loads(json_path.read_text(encoding="utf-8"))
             self.assertEqual(data["total"], 3)
             self.assertEqual(data["applications"][0]["name"], "Alpha")
             self.assertEqual(data["applications"][0]["last_used_date"], "2026-06-27 14:30:05")
+            self.assertEqual(data["applications"][0]["sha256_hash"], "a" * 64)
 
             markdown = md_path.read_text(encoding="utf-8")
             html = html_path.read_text(encoding="utf-8")
             self.assertIn("Last Used", markdown)
             self.assertIn("2026-06-27 14:30:05", markdown)
+            self.assertIn("SHA-256", markdown)
+            self.assertIn("Report", markdown)
             self.assertIn("<table", html)
             self.assertIn("Last Used", html)
             self.assertIn("2026-06-27 14:30:05", html)
+            self.assertIn("SHA-256", html)
+            self.assertIn("virustotal.com/gui/file", html)
             self.assertEqual(pip_count, 1)
             self.assertIn("requests==2.32.3", pip_path.read_text(encoding="utf-8"))
             self.assertEqual(choco_count, 1)

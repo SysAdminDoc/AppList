@@ -13,6 +13,7 @@ class Application:
     install_date: str = ""
     last_used_date: str = ""
     install_location: str = ""
+    executable_path: str = ""
     uninstall_registry_key: str = ""
     uninstall_command: str = ""
     estimated_size: str = ""
@@ -23,6 +24,8 @@ class Application:
     upgrade_available: str = ""  # "Update Available" if newer version exists in winget, else ""
     ghost: bool = False  # True if install_location doesn't exist on disk
     pin_status: str = ""  # "Pinned", "Gating X.Y.*", "Blocking" — from winget pin list
+    sha256_hash: str = ""
+    virustotal_url: str = ""
 
     def to_dict(self) -> Dict[str, str]:
         return asdict(self)
@@ -35,6 +38,7 @@ class Application:
             self.install_date,
             self.last_used_date,
             self.install_location,
+            self.executable_path,
             self.uninstall_registry_key,
             self.uninstall_command,
             self.estimated_size,
@@ -44,4 +48,6 @@ class Application:
             self.winget_id,
             self.upgrade_available,
             self.pin_status,
+            self.sha256_hash,
+            self.virustotal_url,
         ]

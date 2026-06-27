@@ -1,6 +1,6 @@
 # AppList
 
-![Version](https://img.shields.io/badge/version-v1.6.1-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
+![Version](https://img.shields.io/badge/version-v1.6.2-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
 
 A Windows application inventory tool for scanning, cataloging, comparing, and exporting installed software before migrations, rebuilds, audits, and reinstall planning.
 
@@ -15,17 +15,19 @@ A Windows application inventory tool for scanning, cataloging, comparing, and ex
 - Chocolatey, Scoop, and Python pip package inventories
 - Winget cross-reference for package IDs, update availability, and pin status
 - Last-used date enrichment from UserAssist and Windows Prefetch evidence when accessible
+- SHA-256 hashing of discovered executables with cached VirusTotal report links
 
 ### Detailed Information Captured
 - Application name, publisher, version, install date, last-used date, source, type, architecture, and size
-- Install location, registry uninstall key, and uninstall command
+- Install location, executable path, registry uninstall key, and uninstall command
 - Winget package ID, upgrade status, pin status, and missing-path flag
+- SHA-256 hash and VirusTotal report URL when a primary executable can be identified
 
 ### Premium Interface
 - Catppuccin Mocha dark theme
 - DPI-aware Windows title bar integration
 - Threaded scans with live progress and cancellation
-- Sortable table with Application, Publisher, Version, Installed, Last Used, Type, Source, Upgrade, Pin, Winget ID, Size, Arch, Location, and Registry Key columns
+- Sortable table with Application, Publisher, Version, Installed, Last Used, Type, Source, Upgrade, Pin, Winget ID, SHA-256, VirusTotal, Size, Arch, Location, and Registry Key columns
 - Live search across names, publishers, versions, paths, sources, types, and Winget IDs
 - Type, source, and upgrade/data-quality filters
 - First-run, scanning, no-match, error, and empty-result states
@@ -124,6 +126,7 @@ Full AppList schema with machine name, generation timestamp, and application rec
 - Runs with elevated privileges for complete registry access
 - Filters system components, Windows updates, framework packages, and duplicate entries
 - Parses UserAssist and Prefetch activity on a best-effort basis for last-used timestamps
+- Caches executable SHA-256 hashes in `%APPDATA%\AppList\wingetlist-sha-cache.json`
 - DPI-aware rendering
 - Thread-safe scanning with cancellation support
 - Local PyInstaller build script for single-file Windows executable generation
@@ -134,4 +137,4 @@ MIT License - Free for personal and commercial use.
 
 ---
 
-*AppList v1.6.1*
+*AppList v1.6.2*
