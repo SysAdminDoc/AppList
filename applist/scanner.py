@@ -11,7 +11,7 @@ import sys
 import winreg
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from .models import Application
 from .constants import REGISTRY_PATHS
@@ -928,6 +928,63 @@ class ApplicationScanner:
 
         return winget_map
 
+    def _run_winget_client_packages(self) -> Optional[List[Dict[str, object]]]:
+        """Read structured package data from Microsoft.WinGet.Client on PowerShell 7+."""
+        command = (
+            "$ErrorActionPreference = 'Stop'; "
+            "if ($PSVersionTable.PSVersion.Major -lt 7) { throw 'PowerShell 7 required'; } "
+            "Import-Module Microsoft.WinGet.Client -ErrorAction Stop; "
+            "Get-WinGetPackage | Select-Object Name,Id,Source,InstalledVersion,IsUpdateAvailable,"
+            "@{Name='AvailableVersion';Expression={ $versions = @($_.AvailableVersions); "
+            "if ($versions.Count -gt 0) { [string]$versions[0] } else { '' } }} | "
+            "ConvertTo-Json -Depth 4"
+        )
+        try:
+            result = subprocess.run(
+                ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+                capture_output=True, text=True, timeout=120,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            if result.returncode != 0 or not result.stdout.strip():
+                return None
+
+            packages = json.loads(result.stdout)
+            if isinstance(packages, dict):
+                return [packages]
+            return packages if isinstance(packages, list) else None
+        except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.SubprocessError,
+                json.JSONDecodeError, OSError) as e:
+            self._log_warning(f"Microsoft.WinGet.Client structured scan unavailable: {e}")
+            return None
+
+    def _build_winget_client_maps_from_packages(
+        self, packages: List[Dict[str, object]]
+    ) -> Tuple[Dict[str, str], Dict[str, str]]:
+        winget_map: Dict[str, str] = {}
+        upgrade_map: Dict[str, str] = {}
+
+        for pkg in packages:
+            name = str(pkg.get("Name", "")).strip()
+            package_id = str(pkg.get("Id", "")).strip()
+            source = str(pkg.get("Source", "") or "").strip().lower()
+            if not name or not package_id or source != "winget":
+                continue
+
+            winget_map[self._normalize_name(name)] = package_id
+
+            is_update_available = bool(pkg.get("IsUpdateAvailable"))
+            available_version = str(pkg.get("AvailableVersion", "") or "").strip()
+            if is_update_available and available_version:
+                upgrade_map[package_id] = available_version
+
+        return winget_map, upgrade_map
+
+    def _build_winget_client_maps(self) -> Optional[Tuple[Dict[str, str], Dict[str, str]]]:
+        packages = self._run_winget_client_packages()
+        if packages is None:
+            return None
+        return self._build_winget_client_maps_from_packages(packages)
+
     def _parse_winget_table(self, output: str) -> List[Dict[str, str]]:
         """Parse winget column-aligned text output into a list of dicts."""
         packages: List[Dict[str, str]] = []
@@ -1129,7 +1186,13 @@ class ApplicationScanner:
         # Cross-reference with winget for package IDs and upgrade status
         if source_enabled("winget"):
             self._update_status("Phase 7/9: Cross-referencing with winget...")
-            winget_map = self._build_winget_map()
+            winget_client_maps = self._build_winget_client_maps()
+            if winget_client_maps is not None:
+                winget_map, upgrade_map = winget_client_maps
+            else:
+                winget_map = self._build_winget_map()
+                upgrade_map = self._build_upgrade_map()
+
             if winget_map:
                 for app in self.applications:
                     norm = self._normalize_name(app.name)
@@ -1137,7 +1200,6 @@ class ApplicationScanner:
                         app.winget_id = winget_map[norm]
 
             # Check for upgradeable versions
-            upgrade_map = self._build_upgrade_map()
             if upgrade_map:
                 for app in self.applications:
                     if app.winget_id and app.winget_id in upgrade_map:

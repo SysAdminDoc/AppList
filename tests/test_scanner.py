@@ -140,6 +140,31 @@ class ScannerTests(unittest.TestCase):
         self.assertEqual(packages[0]["Id"], "Acme.Alpha")
         self.assertEqual(packages[1]["Version"], "2.0.0")
 
+    def test_winget_client_maps_use_structured_winget_packages(self):
+        scanner = ApplicationScanner()
+        packages = [
+            {
+                "Name": "Alpha App",
+                "Id": "Acme.Alpha",
+                "Source": "winget",
+                "IsUpdateAvailable": True,
+                "AvailableVersion": "2.0.0",
+            },
+            {
+                "Name": "ARP Only",
+                "Id": r"ARP\Machine\X64\ARP Only",
+                "Source": None,
+                "IsUpdateAvailable": False,
+                "AvailableVersion": "",
+            },
+        ]
+
+        winget_map, upgrade_map = scanner._build_winget_client_maps_from_packages(packages)
+
+        self.assertEqual(winget_map[scanner._normalize_name("Alpha App")], "Acme.Alpha")
+        self.assertNotIn(scanner._normalize_name("ARP Only"), winget_map)
+        self.assertEqual(upgrade_map, {"Acme.Alpha": "2.0.0"})
+
     def test_pip_scan_parses_json_packages(self):
         completed = mock.Mock(
             returncode=0,
