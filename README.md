@@ -1,6 +1,6 @@
 # AppList
 
-![Version](https://img.shields.io/badge/version-v1.6.9-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
+![Version](https://img.shields.io/badge/version-v1.6.10-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
 
 A Windows application inventory tool for scanning, cataloging, comparing, and exporting installed software before migrations, rebuilds, audits, and reinstall planning.
 
@@ -17,18 +17,19 @@ A Windows application inventory tool for scanning, cataloging, comparing, and ex
 - Last-used date enrichment from UserAssist and Windows Prefetch evidence when accessible
 - SHA-256 hashing of discovered executables with cached VirusTotal report links
 - Per-source scan diagnostics for skipped, warning, and failed inventory phases
+- Package-manager consistency audit for Chocolatey/Scoop rows without local app evidence
 
 ### Detailed Information Captured
 - Application name, publisher, version, install date, last-used date, source, type, architecture, and size
 - Install location, executable path, registry uninstall key, and uninstall command
-- Winget package ID, upgrade status, pin status, and missing-path flag
+- Winget package ID, upgrade status, pin status, missing-path flag, and package-manager consistency status
 - SHA-256 hash and VirusTotal report URL when a primary executable can be identified
 
 ### Premium Interface
 - Catppuccin Mocha dark theme
 - DPI-aware Windows title bar integration
 - Threaded scans with live progress and cancellation
-- Sortable table with Application, Publisher, Version, Installed, Last Used, Type, Source, Upgrade, Pin, Winget ID, SHA-256, VirusTotal, Size, Arch, Location, and Registry Key columns
+- Sortable table with Application, Publisher, Version, Installed, Last Used, Type, Source, Upgrade, Pin, Winget ID, SHA-256, VirusTotal, Consistency, Size, Arch, Location, and Registry Key columns
 - 500-row table pagination for large inventories while exports still include the full filtered result set
 - Optional source-grouped view with expandable/collapsible source sections
 - Live search across names, publishers, versions, paths, sources, types, and Winget IDs
@@ -138,6 +139,7 @@ ZIP or folder output containing AppList JSON, Winget import JSON, pip requiremen
 - Parses UserAssist and Prefetch activity on a best-effort basis for last-used timestamps
 - Caches executable SHA-256 hashes in `%APPDATA%\AppList\wingetlist-sha-cache.json`
 - Uses `Microsoft.WinGet.Client` on PowerShell 7+ for structured winget package data, with JSON and locale-aware `winget.exe` fallback
+- JSON, TXT, Markdown, CSV, and HTML exports include package-manager consistency status
 - JSON, TXT, Markdown, and HTML exports include scan diagnostics when an inventory source is skipped or degraded
 - Restore bundle export packages reinstall artifacts and unmatched/manual review notes together
 - DPI-aware rendering
@@ -151,4 +153,4 @@ MIT License - Free for personal and commercial use.
 
 ---
 
-*AppList v1.6.9*
+*AppList v1.6.10*

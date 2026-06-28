@@ -77,6 +77,8 @@ def write_txt_export(apps: List[Application], filepath: str, diagnostics: Option
                 f.write(f"       SHA-256:          {app.sha256_hash}\n")
             if app.virustotal_url:
                 f.write(f"       VirusTotal:       {app.virustotal_url}\n")
+            if app.consistency_status:
+                f.write(f"       Consistency:      {app.consistency_status}\n")
             f.write(f"       Type:             {app.app_type}\n")
             f.write(f"       Source:           {app.source}\n")
             f.write("\n")
@@ -109,6 +111,7 @@ def write_csv_export(apps: List[Application], filepath: str):
             "Pin Status",
             "SHA-256",
             "VirusTotal URL",
+            "Consistency",
         ])
         for app in apps:
             writer.writerow(app.to_export_row())
@@ -153,9 +156,10 @@ def write_markdown_export(apps: List[Application], filepath: str, diagnostics: O
         pub = app.publisher.replace("|", "\\|")
         wid = app.winget_id if app.winget_id else ""
         vt_link = f"[Report]({app.virustotal_url})" if app.virustotal_url else ""
+        consistency = app.consistency_status.replace("|", "\\|")
         return (
             f"| {i} | {name} | {pub} | {app.version} | {app.install_date} | "
-            f"{app.last_used_date} | {app.estimated_size} | {wid} | {app.sha256_hash} | {vt_link} |\n"
+            f"{app.last_used_date} | {app.estimated_size} | {wid} | {app.sha256_hash} | {vt_link} | {consistency} |\n"
         )
 
     with open(filepath, "w", encoding="utf-8") as f:
@@ -182,8 +186,8 @@ def write_markdown_export(apps: List[Application], filepath: str, diagnostics: O
             if not group:
                 continue
             f.write(f"## {group_name} ({len(group)})\n\n")
-            f.write("| # | Name | Publisher | Version | Install Date | Last Used | Size | Winget ID | SHA-256 | VirusTotal |\n")
-            f.write("|---|------|-----------|---------|--------------|-----------|------|-----------|---------|------------|\n")
+            f.write("| # | Name | Publisher | Version | Install Date | Last Used | Size | Winget ID | SHA-256 | VirusTotal | Consistency |\n")
+            f.write("|---|------|-----------|---------|--------------|-----------|------|-----------|---------|------------|-------------|\n")
             for i, app in enumerate(group, 1):
                 f.write(_md_row(i, app))
             f.write("\n")
@@ -535,6 +539,7 @@ def write_html_export(apps: List[Application], filepath: str, diagnostics: Optio
             f"<td>{vt_link}</td>"
             f"<td>{upgrade}</td>"
             f"<td>{pin}</td>"
+            f"<td>{html_mod.escape(app.consistency_status)}</td>"
             f"<td>{html_mod.escape(app.architecture)}</td>"
             f"<td>{html_mod.escape(app.install_location)}</td>"
             f"</tr>"
@@ -648,8 +653,9 @@ a:hover {{ text-decoration: underline; }}
   <th onclick="sortTable(10)">VirusTotal</th>
   <th onclick="sortTable(11)">Upgrade</th>
   <th onclick="sortTable(12)">Pin</th>
-  <th onclick="sortTable(13)">Arch</th>
-  <th onclick="sortTable(14)">Location</th>
+  <th onclick="sortTable(13)">Consistency</th>
+  <th onclick="sortTable(14)">Arch</th>
+  <th onclick="sortTable(15)">Location</th>
 </tr></thead>
 <tbody>
 {table_body}

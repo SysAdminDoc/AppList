@@ -39,6 +39,7 @@ class Application:
     pin_status: str = ""  # "Pinned", "Gating X.Y.*", "Blocking" — from winget pin list
     sha256_hash: str = ""
     virustotal_url: str = ""
+    consistency_status: str = ""
 
     def to_dict(self) -> Dict[str, str]:
         return asdict(self)
@@ -63,4 +64,5 @@ class Application:
             self.pin_status,
             self.sha256_hash,
             self.virustotal_url,
+            self.consistency_status,
         ]

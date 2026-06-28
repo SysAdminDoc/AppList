@@ -28,13 +28,6 @@ Remaining incomplete work only. Completed items are deleted. Blocked items belon
 
 ## Research-Driven Additions
 
-- [ ] P1 - Package-manager consistency audit
-  Why: stale Chocolatey/Scoop/winget metadata can claim software is installed after the real app was removed, causing restore/update confusion.
-  Evidence: https://github.com/Devolutions/UniGetUI/issues/5020; `applist/scanner.py` package-manager scanners; current ghost flag only covers missing install paths.
-  Touches: `applist/scanner.py`, `applist/models.py`, `applist/ui.py`, exports, tests
-  Acceptance: AppList flags package-manager rows with no matching registry/app executable evidence as inconsistent and exports that state.
-  Complexity: M
-
 - [ ] P1 - AppList JSON schema and migration fixtures
   Why: snapshot diffing depends on stable JSON, but schema compatibility is only implicit in `write_json_export()` and `diff_json_snapshots()`.
   Evidence: `applist/exports.py`; Microsoft winget JSON schema docs; existing AppList JSON diff workflow.

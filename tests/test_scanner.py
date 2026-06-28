@@ -229,6 +229,22 @@ class ScannerTests(unittest.TestCase):
         self.assertEqual(diagnostic.row_count, 0)
         self.assertEqual(diagnostic.warnings, ["registry denied"])
 
+    def test_package_manager_consistency_flags_rows_without_local_evidence(self):
+        scanner = ApplicationScanner()
+        scanner.applications = [
+            Application(name="Alpha App", app_type="Desktop", source="HKLM64"),
+            Application(name="Alpha App", app_type="Chocolatey", source="Chocolatey"),
+            Application(name="Ghost Tool", app_type="Scoop", source="Scoop"),
+        ]
+
+        scanner._apply_package_manager_consistency()
+
+        self.assertEqual(scanner.applications[1].consistency_status, "")
+        self.assertEqual(
+            scanner.applications[2].consistency_status,
+            "No registry, Store, Program Files, or executable evidence",
+        )
+
     def test_winget_client_maps_use_structured_winget_packages(self):
         scanner = ApplicationScanner()
         packages = [

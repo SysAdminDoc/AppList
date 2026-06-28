@@ -628,7 +628,7 @@ class AppListWindow(ctk.CTk):
         columns = (
             "name", "publisher", "version", "install_date", "last_used_date",
             "type", "source", "upgrade_available", "pin_status", "winget_id",
-            "sha256_hash", "virustotal", "size", "architecture", "install_location", "registry_key",
+            "sha256_hash", "virustotal", "consistency", "size", "architecture", "install_location", "registry_key",
         )
 
         # Create treeview with scrollbar
@@ -670,6 +670,7 @@ class AppListWindow(ctk.CTk):
             "winget_id": ("Winget ID", 200),
             "sha256_hash": ("SHA-256", 240),
             "virustotal": ("VirusTotal", 105),
+            "consistency": ("Consistency", 170),
             "size": ("Size", 90),
             "architecture": ("Arch", 80),
             "install_location": ("Location", 280),
@@ -1072,6 +1073,7 @@ class AppListWindow(ctk.CTk):
             app.last_used_date,
             app.app_type, app.source, status, app.pin_status,
             app.winget_id, app.sha256_hash, "Report" if app.virustotal_url else "",
+            app.consistency_status,
             app.estimated_size, app.architecture,
             app.install_location, app.uninstall_registry_key,
         )
@@ -1139,7 +1141,8 @@ class AppListWindow(ctk.CTk):
                 searchable = (
                     f"{app.name} {app.publisher} {app.version} {app.install_location} "
                     f"{app.uninstall_registry_key} {app.source} {app.app_type} {app.winget_id} "
-                    f"{app.last_used_date} {app.executable_path} {app.sha256_hash} {app.virustotal_url}"
+                    f"{app.last_used_date} {app.executable_path} {app.sha256_hash} {app.virustotal_url} "
+                    f"{app.consistency_status}"
                 ).lower()
                 if search_text not in searchable:
                     continue
@@ -1215,7 +1218,7 @@ class AppListWindow(ctk.CTk):
             "source": "source", "size": "estimated_size", "architecture": "architecture",
             "winget_id": "winget_id", "upgrade_available": "upgrade_available",
             "pin_status": "pin_status", "sha256_hash": "sha256_hash",
-            "virustotal": "virustotal_url",
+            "virustotal": "virustotal_url", "consistency": "consistency_status",
         }
         attr = attr_map.get(self.sort_column, "name")
         self.filtered_apps.sort(key=lambda x: getattr(x, attr, "").lower(), reverse=self.sort_reverse)

@@ -491,6 +491,30 @@ class ApplicationScanner:
         if failures:
             self._log_warning(f"{failures} executable hashes could not be calculated.")
 
+    def _apply_package_manager_consistency(self):
+        """Flag package-manager rows that have no matching local app evidence."""
+        evidence_keys = set()
+        for app in self.applications:
+            if app.app_type in {"Chocolatey", "Scoop", "Python Package"}:
+                continue
+            for value in (app.name, app.install_location, app.executable_path, app.winget_id):
+                evidence_keys.update(self._candidate_keys(value))
+
+        for app in self.applications:
+            if app.app_type not in {"Chocolatey", "Scoop"}:
+                continue
+            app.consistency_status = ""
+            if app.install_location and os.path.exists(app.install_location):
+                continue
+            if app.executable_path and os.path.exists(app.executable_path):
+                continue
+            candidate_keys = set()
+            for value in (app.name, app.install_location, app.executable_path, app.winget_id):
+                candidate_keys.update(self._candidate_keys(value))
+            if candidate_keys and candidate_keys.intersection(evidence_keys):
+                continue
+            app.consistency_status = "No registry, Store, Program Files, or executable evidence"
+
     def _get_registry_value(self, key, value_name: str, default: str = "") -> str:
         """Safely get a registry value."""
         try:
@@ -1357,6 +1381,8 @@ class ApplicationScanner:
         for app in self.applications:
             if app.install_location and not os.path.exists(app.install_location):
                 app.ghost = True
+
+        self._apply_package_manager_consistency()
 
         # Sort by name
         self.applications.sort(key=lambda x: x.name.lower())
