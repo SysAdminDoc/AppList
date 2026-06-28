@@ -192,6 +192,14 @@ class ScannerTests(unittest.TestCase):
             "winget text output could not be parsed; structured output is required for this locale."
         )
 
+    def test_winget_map_handles_missing_stdout_from_decode_failure(self):
+        scanner = ApplicationScanner()
+        json_failure = mock.Mock(returncode=1, stdout=None)
+        text_result = mock.Mock(returncode=0, stdout=None)
+
+        with mock.patch.object(scanner_module.subprocess, "run", side_effect=[json_failure, text_result]):
+            self.assertEqual(scanner._build_winget_map(), {})
+
     def test_scan_all_records_source_diagnostics(self):
         scanner = ApplicationScanner()
 

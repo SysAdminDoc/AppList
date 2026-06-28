@@ -33,6 +33,7 @@ from .exports import (
     write_html_export,
     write_pip_requirements_export,
     write_choco_export,
+    write_restore_bundle_export,
 )
 
 PAGE_SIZE = 500
@@ -607,7 +608,10 @@ class AppListWindow(ctk.CTk):
         self.export_pip_btn.pack(side="left", padx=(0, 6))
 
         self.export_choco_btn = SecondaryButton(export_frame, text="Choco", width=72, command=self._export_choco)
-        self.export_choco_btn.pack(side="left")
+        self.export_choco_btn.pack(side="left", padx=(0, 6))
+
+        self.export_bundle_btn = SecondaryButton(export_frame, text="Bundle", width=84, command=self._export_bundle)
+        self.export_bundle_btn.pack(side="left")
 
     def _create_main_content(self):
         """Create the main content area with treeview."""
@@ -793,7 +797,7 @@ class AppListWindow(ctk.CTk):
         for button in (
             self.export_txt_btn, self.export_csv_btn, self.export_md_btn,
             self.export_json_btn, self.export_winget_btn, self.export_html_btn,
-            self.export_pip_btn, self.export_choco_btn,
+            self.export_pip_btn, self.export_choco_btn, self.export_bundle_btn,
         ):
             button.configure(state=state)
 
@@ -1411,6 +1415,30 @@ class AppListWindow(ctk.CTk):
     # ══════════════════════════════════════════════════════════════════════════
     # CONTEXT MENU ACTIONS
     # ══════════════════════════════════════════════════════════════════════════
+
+    def _export_bundle(self):
+        if not self._ensure_exportable_rows():
+            return
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".zip",
+            filetypes=[("Zip Files", "*.zip"), ("All Files", "*.*")],
+            initialfile=f"AppList_Restore_{timestamp}.zip",
+            title="Export Restore Bundle",
+        )
+        if not filepath:
+            return
+        try:
+            manifest = write_restore_bundle_export(self.filtered_apps, filepath, self.scan_diagnostics)
+            self._update_status(f"Exported restore bundle with {manifest['application_count']} applications.")
+            messagebox.showinfo(
+                "Export Complete",
+                f"Successfully exported restore bundle to:\n{filepath}\n\n"
+                "Review unmatched-skipped.md and restore-commands.ps1 before reinstalling.",
+            )
+        except (OSError, TypeError, ValueError) as e:
+            self._update_status("Restore bundle export failed.")
+            messagebox.showerror("Export Error", f"Failed to export:\n{e}")
 
     def _lookup_winget(self):
         app = self._get_selected_app()

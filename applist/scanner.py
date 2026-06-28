@@ -928,24 +928,26 @@ class ApplicationScanner:
             result = subprocess.run(
                 ["winget", "list", "--accept-source-agreements",
                  "--disable-interactivity", "--output", "json"],
-                capture_output=True, text=True, timeout=90,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90,
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
             packages: List[Dict[str, str]] = []
-            if result.returncode == 0 and result.stdout.strip():
-                packages = self._parse_winget_json_packages(result.stdout)
+            output = result.stdout or ""
+            if result.returncode == 0 and output.strip():
+                packages = self._parse_winget_json_packages(output)
 
             # Fall back to tabular text parsing
             if not packages:
                 result = subprocess.run(
                     ["winget", "list", "--accept-source-agreements",
                      "--disable-interactivity"],
-                    capture_output=True, text=True, timeout=90,
+                    capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90,
                     creationflags=subprocess.CREATE_NO_WINDOW,
                 )
+                output = result.stdout or ""
                 if result.returncode == 0:
-                    packages = self._parse_winget_table(result.stdout)
-                    if not packages and result.stdout.strip():
+                    packages = self._parse_winget_table(output)
+                    if not packages and output.strip():
                         self._log_warning(
                             "winget text output could not be parsed; structured output is required for this locale."
                         )
@@ -1017,13 +1019,14 @@ class ApplicationScanner:
         try:
             result = subprocess.run(
                 ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
-                capture_output=True, text=True, timeout=120,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
-            if result.returncode != 0 or not result.stdout.strip():
+            output = result.stdout or ""
+            if result.returncode != 0 or not output.strip():
                 return None
 
-            packages = json.loads(result.stdout)
+            packages = json.loads(output)
             if isinstance(packages, dict):
                 return [packages]
             return packages if isinstance(packages, list) else None
@@ -1139,12 +1142,13 @@ class ApplicationScanner:
             result = subprocess.run(
                 ["winget", "upgrade", "--accept-source-agreements",
                  "--disable-interactivity", "--output", "json"],
-                capture_output=True, text=True, timeout=60,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
-            if result.returncode == 0 and result.stdout.strip():
+            output = result.stdout or ""
+            if result.returncode == 0 and output.strip():
                 try:
-                    data = json.loads(result.stdout)
+                    data = json.loads(output)
                     upgradeable = data.get("Upgradeable", [])
                     for pkg in upgradeable:
                         pkg_id = str(pkg.get("Id", "")).strip()
@@ -1164,13 +1168,13 @@ class ApplicationScanner:
             result = subprocess.run(
                 ["winget", "pin", "list", "--accept-source-agreements",
                  "--disable-interactivity"],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
             if result.returncode != 0:
                 return pin_map
 
-            lines = result.stdout.splitlines()
+            lines = (result.stdout or "").splitlines()
             header_idx = -1
             for i, line in enumerate(lines):
                 if "Id" in line and ("Version" in line or "Pin" in line):

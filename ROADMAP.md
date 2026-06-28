@@ -28,13 +28,6 @@ Remaining incomplete work only. Completed items are deleted. Blocked items belon
 
 ## Research-Driven Additions
 
-- [ ] P1 - Restore bundle export
-  Why: users want migration-ready reinstall plans, and single-format exports do not explain what will restore, what is unmatched, or which commands to run.
-  Evidence: UniGetUI backup/recover features; Microsoft `winget export`/`import` docs; current `applist/exports.py` separate writers.
-  Touches: `applist/exports.py`, `applist/cli.py`, `applist/ui.py`, `tests/test_exports.py`, README
-  Acceptance: one command/UI action creates a folder or zip with AppList JSON, winget JSON, pip requirements, Chocolatey config, Markdown/HTML reports, restore commands, and an unmatched/skipped report.
-  Complexity: L
-
 - [ ] P1 - Package-manager consistency audit
   Why: stale Chocolatey/Scoop/winget metadata can claim software is installed after the real app was removed, causing restore/update confusion.
   Evidence: https://github.com/Devolutions/UniGetUI/issues/5020; `applist/scanner.py` package-manager scanners; current ghost flag only covers missing install paths.

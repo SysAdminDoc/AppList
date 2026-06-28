@@ -3,7 +3,11 @@
 import csv
 import json
 import os
+import shutil
+import tempfile
+import zipfile
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import APP_NAME, APP_VERSION
@@ -274,6 +278,120 @@ def write_choco_export(apps: List[Application], filepath: str) -> int:
     with open(filepath, "wb") as f:
         tree.write(f, encoding="utf-8", xml_declaration=True)
     return len(choco_apps)
+
+
+def _restore_command_lines(files: Dict[str, str]) -> List[str]:
+    lines = [
+        "# AppList restore commands",
+        "# Review unmatched-skipped.md before running.",
+        "",
+    ]
+    if "winget" in files:
+        lines.append('winget import -i ".\\winget-packages.json" --accept-package-agreements --accept-source-agreements')
+    if "pip" in files:
+        lines.append('py -m pip install -r ".\\requirements.txt"')
+    if "chocolatey" in files:
+        lines.append('choco install ".\\packages.config" -y')
+    if len(lines) == 3:
+        lines.append("# No package-manager restore commands were generated for this bundle.")
+    return lines
+
+
+def _write_unmatched_report(apps: List[Application], filepath: str, files: Dict[str, str]):
+    package_manager_apps = {
+        app.name for app in apps
+        if app.winget_id or app.app_type in {"Python Package", "Chocolatey"}
+    }
+    unmatched = [app for app in apps if app.name not in package_manager_apps]
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write("# Unmatched and Skipped Applications\n\n")
+        f.write("These rows were captured in the AppList inventory but do not have an automatic package-manager restore command in this bundle.\n\n")
+        if not unmatched:
+            f.write("All captured applications have a package-manager restore path in this bundle.\n")
+            return
+        f.write("| Name | Publisher | Version | Source | Install Location |\n")
+        f.write("|------|-----------|---------|--------|------------------|\n")
+        for app in sorted(unmatched, key=lambda a: a.name.lower()):
+            name = app.name.replace("|", "\\|")
+            publisher = app.publisher.replace("|", "\\|")
+            version = app.version.replace("|", "\\|")
+            source = app.source.replace("|", "\\|")
+            install_location = app.install_location.replace("|", "\\|")
+            f.write(
+                f"| {name} | {publisher} | {version} | {source} | {install_location} |\n"
+            )
+
+
+def write_restore_bundle_export(
+    apps: List[Application],
+    output_path: str,
+    diagnostics: Optional[List[ScanDiagnostic]] = None,
+) -> Dict[str, Any]:
+    """Write a migration-ready restore bundle folder or zip and return its manifest."""
+    target = Path(output_path).expanduser()
+    as_zip = target.suffix.lower() == ".zip"
+    bundle_name = target.stem if as_zip else target.name
+    if not bundle_name:
+        bundle_name = f"AppList_Restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+    temp_root_obj = tempfile.TemporaryDirectory() if as_zip else None
+    root = Path(temp_root_obj.name) / bundle_name if temp_root_obj else target
+    if root.exists():
+        shutil.rmtree(root)
+    root.mkdir(parents=True, exist_ok=True)
+
+    files: Dict[str, str] = {}
+    skipped: Dict[str, str] = {}
+
+    def add_file(key: str, filename: str, writer):
+        path = root / filename
+        try:
+            writer(str(path))
+            files[key] = filename
+        except ValueError as e:
+            skipped[key] = str(e)
+
+    write_json_export(apps, str(root / "applist.json"), diagnostics)
+    files["applist_json"] = "applist.json"
+    write_markdown_export(apps, str(root / "report.md"), diagnostics)
+    files["markdown_report"] = "report.md"
+    write_html_export(apps, str(root / "dashboard.html"), diagnostics)
+    files["html_dashboard"] = "dashboard.html"
+
+    add_file("winget", "winget-packages.json", lambda path: write_winget_export(apps, path))
+    add_file("pip", "requirements.txt", lambda path: write_pip_requirements_export(apps, path))
+    add_file("chocolatey", "packages.config", lambda path: write_choco_export(apps, path))
+
+    restore_commands = _restore_command_lines(files)
+    (root / "restore-commands.ps1").write_text("\n".join(restore_commands) + "\n", encoding="utf-8")
+    files["restore_commands"] = "restore-commands.ps1"
+    _write_unmatched_report(apps, str(root / "unmatched-skipped.md"), files)
+    files["unmatched_report"] = "unmatched-skipped.md"
+
+    manifest = {
+        "schema": f"AppListRestoreBundle/{APP_VERSION}",
+        "generated": datetime.now().isoformat(),
+        "application_count": len(apps),
+        "files": files,
+        "skipped": skipped,
+        "diagnostics": _diagnostic_dicts(diagnostics) if _has_reportable_diagnostics(diagnostics) else [],
+    }
+    (root / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+    files["manifest"] = "manifest.json"
+
+    if as_zip:
+        if target.exists():
+            target.unlink()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for path in root.rglob("*"):
+                if path.is_file():
+                    zf.write(path, path.relative_to(root))
+        if temp_root_obj:
+            temp_root_obj.cleanup()
+
+    return manifest
 
 
 def diff_json_snapshots(old_path: str, new_path: str) -> Dict[str, Any]:

@@ -1,6 +1,6 @@
 # AppList
 
-![Version](https://img.shields.io/badge/version-v1.6.8-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
+![Version](https://img.shields.io/badge/version-v1.6.9-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
 
 A Windows application inventory tool for scanning, cataloging, comparing, and exporting installed software before migrations, rebuilds, audits, and reinstall planning.
 
@@ -46,6 +46,7 @@ A Windows application inventory tool for scanning, cataloging, comparing, and ex
 - Winget import JSON
 - pip `requirements.txt`
 - Chocolatey `packages.config`
+- Restore bundle ZIP with inventory, restore files, commands, and unmatched report
 
 ### Diff / Compare
 - Compare two AppList JSON snapshots and report Added, Removed, and VersionChanged entries
@@ -76,7 +77,7 @@ Or double-click `AppList.py` in Windows Explorer after dependencies are installe
 4. Click column headers to sort
 5. Right-click any item for context menu actions
 6. Double-click to open the install location
-7. Export the filtered view as TXT, CSV, Markdown, JSON, HTML, Winget, pip, or Chocolatey output
+7. Export the filtered view as TXT, CSV, Markdown, JSON, HTML, Winget, pip, Chocolatey, or restore bundle output
 
 ### CLI Mode
 
@@ -85,11 +86,12 @@ python AppList.py --export csv --output apps.csv --include store,winget
 python AppList.py --export html --output dashboard.html
 python AppList.py --export pip --output requirements.txt --include pip
 python AppList.py --export choco --output packages.config --include choco
+python AppList.py --export bundle --output restore-bundle.zip
 python AppList.py --diff old_snapshot.json new_snapshot.json
 python AppList.py --diff old.json new.json -o report.json
 ```
 
-Supported export formats: `txt`, `csv`, `md`, `markdown`, `json`, `winget`, `html`, `pip`, `choco`.
+Supported export formats: `txt`, `csv`, `md`, `markdown`, `json`, `winget`, `html`, `pip`, `choco`, `bundle`.
 
 Supported source filters: `all`, `desktop`, `registry`, `store`, `program_files`, `chocolatey`, `scoop`, `pip`, `winget`.
 
@@ -117,6 +119,9 @@ GitHub-ready grouped report for Desktop, Store, Unregistered, Chocolatey, Scoop,
 ### JSON Format
 Full AppList schema with machine name, generation timestamp, and application records for round-trippable snapshot diffing.
 
+### Restore Bundle
+ZIP or folder output containing AppList JSON, Winget import JSON, pip requirements, Chocolatey config, Markdown and HTML reports, `restore-commands.ps1`, `manifest.json`, and `unmatched-skipped.md`.
+
 ## Tips for Windows Reinstallation
 
 1. Run a full scan before reinstalling Windows
@@ -134,6 +139,7 @@ Full AppList schema with machine name, generation timestamp, and application rec
 - Caches executable SHA-256 hashes in `%APPDATA%\AppList\wingetlist-sha-cache.json`
 - Uses `Microsoft.WinGet.Client` on PowerShell 7+ for structured winget package data, with JSON and locale-aware `winget.exe` fallback
 - JSON, TXT, Markdown, and HTML exports include scan diagnostics when an inventory source is skipped or degraded
+- Restore bundle export packages reinstall artifacts and unmatched/manual review notes together
 - DPI-aware rendering
 - Thread-safe scanning with cancellation support
 - Pinned release dependency lock with local `pip-audit` verification and PyInstaller build enforcement
@@ -145,4 +151,4 @@ MIT License - Free for personal and commercial use.
 
 ---
 
-*AppList v1.6.8*
+*AppList v1.6.9*

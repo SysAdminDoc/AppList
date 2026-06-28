@@ -19,6 +19,7 @@ from .exports import (
     write_html_export,
     write_pip_requirements_export,
     write_choco_export,
+    write_restore_bundle_export,
     diff_json_snapshots,
     write_diff_report,
 )
@@ -34,7 +35,7 @@ def build_cli_parser() -> argparse.ArgumentParser:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
         "--export",
-        choices=["txt", "csv", "md", "markdown", "json", "winget", "html", "pip", "choco"],
+        choices=["txt", "csv", "md", "markdown", "json", "winget", "html", "pip", "choco", "bundle"],
         help="Export format to write.",
     )
     group.add_argument(
@@ -109,6 +110,8 @@ def run_cli(argv: List[str]) -> int:
         include_sources.add("pip")
     elif export_format == "choco":
         include_sources.add("chocolatey")
+    elif export_format == "bundle":
+        include_sources.update({"winget", "pip", "chocolatey"})
 
     output_path = Path(args.output).expanduser()
     if output_path.parent and str(output_path.parent) not in ("", "."):
@@ -144,10 +147,11 @@ def run_cli(argv: List[str]) -> int:
         "html": write_html_export,
         "pip": write_pip_requirements_export,
         "choco": write_choco_export,
+        "bundle": write_restore_bundle_export,
     }
 
     try:
-        if export_format in {"txt", "markdown", "json", "html"}:
+        if export_format in {"txt", "markdown", "json", "html", "bundle"}:
             result = writers[export_format](apps, str(output_path), diagnostics)
         else:
             result = writers[export_format](apps, str(output_path))
@@ -156,5 +160,7 @@ def run_cli(argv: List[str]) -> int:
         return 1
 
     exported_count = result if isinstance(result, int) else len(apps)
+    if isinstance(result, dict):
+        exported_count = result.get("application_count", len(apps))
     print(f"Exported {exported_count} applications to {output_path}")
     return 0

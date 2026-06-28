@@ -2,6 +2,7 @@ import csv
 import json
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 from applist.exports import (
@@ -13,6 +14,7 @@ from applist.exports import (
     write_json_export,
     write_markdown_export,
     write_pip_requirements_export,
+    write_restore_bundle_export,
     write_txt_export,
 )
 from applist.models import Application, ScanDiagnostic
@@ -118,6 +120,39 @@ class ExportTests(unittest.TestCase):
             html = html_path.read_text(encoding="utf-8")
             self.assertIn("Scan Diagnostics", html)
             self.assertIn("PowerShell unavailable", html)
+
+    def test_restore_bundle_export_creates_restore_artifacts_zip(self):
+        apps = [
+            Application(name="Alpha", publisher="Acme", version="1.0", winget_id="Acme.Alpha", source="HKLM64"),
+            Application(name="requests", version="2.32.3", app_type="Python Package", source="Python (pip)"),
+            Application(name="git", version="2.45.0", app_type="Chocolatey", source="Chocolatey"),
+            Application(name="Manual Tool", publisher="Acme", version="3.0", source="HKLM64"),
+        ]
+        diagnostics = [ScanDiagnostic(source="Scoop", status="skipped")]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle_path = Path(tmp) / "restore.zip"
+            manifest = write_restore_bundle_export(apps, str(bundle_path), diagnostics)
+
+            self.assertEqual(manifest["application_count"], 4)
+            self.assertTrue(bundle_path.exists())
+            with zipfile.ZipFile(bundle_path) as zf:
+                names = set(zf.namelist())
+                self.assertIn("applist.json", names)
+                self.assertIn("winget-packages.json", names)
+                self.assertIn("requirements.txt", names)
+                self.assertIn("packages.config", names)
+                self.assertIn("report.md", names)
+                self.assertIn("dashboard.html", names)
+                self.assertIn("restore-commands.ps1", names)
+                self.assertIn("unmatched-skipped.md", names)
+                self.assertIn("manifest.json", names)
+                commands = zf.read("restore-commands.ps1").decode("utf-8")
+                self.assertIn("winget import", commands)
+                self.assertIn("pip install", commands)
+                self.assertIn("choco install", commands)
+                unmatched = zf.read("unmatched-skipped.md").decode("utf-8")
+                self.assertIn("Manual Tool", unmatched)
 
     def test_markdown_groups_preserve_unknown_types(self):
         groups = get_markdown_groups(
