@@ -22,7 +22,7 @@ from .constants import (
     split_windows_command_line,
     is_shell_host_command,
 )
-from .models import Application
+from .models import Application, ScanDiagnostic
 from .scanner import ApplicationScanner
 from .exports import (
     write_txt_export,
@@ -204,6 +204,7 @@ class AppListWindow(ctk.CTk):
         self.scanner = None
         self.applications: List[Application] = []
         self.filtered_apps: List[Application] = []
+        self.scan_diagnostics: List[ScanDiagnostic] = []
         self.tree_iid_to_index: Dict[str, int] = {}
         self.scan_thread = None
         self.sort_column = "name"
@@ -872,6 +873,7 @@ class AppListWindow(ctk.CTk):
             self.tree.delete(item)
         self.applications = []
         self.filtered_apps = []
+        self.scan_diagnostics = []
         self.tree_iid_to_index = {}
         self.current_page = 0
 
@@ -918,6 +920,7 @@ class AppListWindow(ctk.CTk):
         self.scan_has_run = True
         self.applications = apps
         self.filtered_apps = apps.copy()
+        self.scan_diagnostics = self.scanner.scan_diagnostics if self.scanner else []
         self.current_page = 0
 
         desktop_count = sum(1 for a in apps if a.app_type == "Desktop")
@@ -941,8 +944,19 @@ class AppListWindow(ctk.CTk):
         else:
             self.progress_bar.set(1)
             self.progress_percent_label.configure(text="100%")
-            self._update_status(f"Scan complete. Found {len(apps)} applications.")
-            self._set_status_tone("idle")
+            diagnostic_count = sum(
+                1 for diagnostic in self.scan_diagnostics
+                if diagnostic.status in {"skipped", "warning", "failed"} or diagnostic.warnings
+            )
+            if diagnostic_count:
+                self._update_status(
+                    f"Scan complete with {diagnostic_count} diagnostic notices. "
+                    f"Found {len(apps)} applications."
+                )
+                self._set_status_tone("warning")
+            else:
+                self._update_status(f"Scan complete. Found {len(apps)} applications.")
+                self._set_status_tone("idle")
 
     def _on_scan_error(self, error: str):
         self.is_scanning = False
@@ -1231,7 +1245,7 @@ class AppListWindow(ctk.CTk):
         if not filepath:
             return
         try:
-            write_txt_export(self.filtered_apps, filepath)
+            write_txt_export(self.filtered_apps, filepath, self.scan_diagnostics)
             self._update_status(f"Exported {len(self.filtered_apps)} rows to TXT.")
             messagebox.showinfo("Export Complete", f"Successfully exported {len(self.filtered_apps)} applications to:\n{filepath}")
         except OSError as e:
@@ -1267,7 +1281,7 @@ class AppListWindow(ctk.CTk):
         if not filepath:
             return
         try:
-            write_markdown_export(self.filtered_apps, filepath)
+            write_markdown_export(self.filtered_apps, filepath, self.scan_diagnostics)
             self._update_status(f"Exported {len(self.filtered_apps)} rows to Markdown.")
             messagebox.showinfo("Export Complete", f"Successfully exported {len(self.filtered_apps)} applications to:\n{filepath}")
         except OSError as e:
@@ -1285,7 +1299,7 @@ class AppListWindow(ctk.CTk):
         if not filepath:
             return
         try:
-            write_json_export(self.filtered_apps, filepath)
+            write_json_export(self.filtered_apps, filepath, self.scan_diagnostics)
             self._update_status(f"Exported {len(self.filtered_apps)} rows to JSON.")
             messagebox.showinfo("Export Complete", f"Successfully exported {len(self.filtered_apps)} applications to:\n{filepath}")
         except (OSError, TypeError, ValueError) as e:
@@ -1303,7 +1317,7 @@ class AppListWindow(ctk.CTk):
         if not filepath:
             return
         try:
-            write_html_export(self.filtered_apps, filepath)
+            write_html_export(self.filtered_apps, filepath, self.scan_diagnostics)
             self._update_status(f"Exported {len(self.filtered_apps)} rows to HTML.")
             messagebox.showinfo("Export Complete",
                 f"Successfully exported {len(self.filtered_apps)} applications to:\n{filepath}\n\n"

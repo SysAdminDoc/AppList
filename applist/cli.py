@@ -119,6 +119,21 @@ def run_cli(argv: List[str]) -> int:
 
     scanner = ApplicationScanner(status_callback=status)
     apps = scanner.scan_all(include_sources=include_sources)
+    diagnostics = scanner.scan_diagnostics
+    reportable_diagnostics = [
+        diagnostic for diagnostic in diagnostics
+        if diagnostic.status in {"skipped", "warning", "failed"} or diagnostic.warnings
+    ]
+    if reportable_diagnostics:
+        print("Scan diagnostics:", file=sys.stderr)
+        for diagnostic in reportable_diagnostics:
+            print(
+                f"  {diagnostic.source}: {diagnostic.status}; "
+                f"rows={diagnostic.row_count}; duration={diagnostic.duration_seconds:.3f}s",
+                file=sys.stderr,
+            )
+            for warning in diagnostic.warnings:
+                print(f"    Warning: {warning}", file=sys.stderr)
 
     writers = {
         "txt": write_txt_export,
@@ -132,7 +147,10 @@ def run_cli(argv: List[str]) -> int:
     }
 
     try:
-        result = writers[export_format](apps, str(output_path))
+        if export_format in {"txt", "markdown", "json", "html"}:
+            result = writers[export_format](apps, str(output_path), diagnostics)
+        else:
+            result = writers[export_format](apps, str(output_path))
     except (OSError, csv.Error, TypeError, ValueError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1

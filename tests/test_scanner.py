@@ -192,6 +192,35 @@ class ScannerTests(unittest.TestCase):
             "winget text output could not be parsed; structured output is required for this locale."
         )
 
+    def test_scan_all_records_source_diagnostics(self):
+        scanner = ApplicationScanner()
+
+        with mock.patch.object(scanner, "scan_registry", return_value=[Application(name="Alpha")]), \
+                mock.patch.object(scanner, "_apply_last_used_dates"), \
+                mock.patch.object(scanner, "_apply_virustotal_hashes"):
+            apps = scanner.scan_all(include_sources={"registry"})
+
+        self.assertEqual([app.name for app in apps], ["Alpha"])
+        diagnostics = {diagnostic.source: diagnostic for diagnostic in scanner.scan_diagnostics}
+        self.assertEqual(diagnostics["Windows Registry"].status, "ok")
+        self.assertEqual(diagnostics["Windows Registry"].row_count, 1)
+        self.assertEqual(diagnostics["Microsoft Store"].status, "skipped")
+        self.assertEqual(diagnostics["winget"].status, "skipped")
+
+    def test_scan_all_records_failed_source_diagnostics(self):
+        scanner = ApplicationScanner()
+
+        with mock.patch.object(scanner, "scan_registry", side_effect=OSError("registry denied")), \
+                mock.patch.object(scanner, "_apply_last_used_dates"), \
+                mock.patch.object(scanner, "_apply_virustotal_hashes"):
+            apps = scanner.scan_all(include_sources={"registry"})
+
+        self.assertEqual(apps, [])
+        diagnostic = next(d for d in scanner.scan_diagnostics if d.source == "Windows Registry")
+        self.assertEqual(diagnostic.status, "failed")
+        self.assertEqual(diagnostic.row_count, 0)
+        self.assertEqual(diagnostic.warnings, ["registry denied"])
+
     def test_winget_client_maps_use_structured_winget_packages(self):
         scanner = ApplicationScanner()
         packages = [

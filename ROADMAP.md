@@ -28,13 +28,6 @@ Remaining incomplete work only. Completed items are deleted. Blocked items belon
 
 ## Research-Driven Additions
 
-- [ ] P0 - Visible scan diagnostics and partial-failure report
-  Why: source failures currently print to stderr, which GUI users can miss while receiving a seemingly complete inventory.
-  Evidence: `applist/scanner.py` `_log_warning`; BCUninstaller and Intune both surface inventory status and refresh limitations.
-  Touches: `applist/scanner.py`, `applist/ui.py`, `applist/cli.py`, `tests/`
-  Acceptance: every scan returns per-source status, warning, duration, and row counts; GUI and CLI exports include a diagnostics section when any source is skipped or fails.
-  Complexity: L
-
 - [ ] P1 - Restore bundle export
   Why: users want migration-ready reinstall plans, and single-format exports do not explain what will restore, what is unmatched, or which commands to run.
   Evidence: UniGetUI backup/recover features; Microsoft `winget export`/`import` docs; current `applist/exports.py` separate writers.

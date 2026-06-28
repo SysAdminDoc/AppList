@@ -1,7 +1,20 @@
 """Application data model."""
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, field, asdict
 from typing import Dict, List
+
+
+@dataclass
+class ScanDiagnostic:
+    """Per-source scan status for partial-failure reporting."""
+    source: str
+    status: str
+    row_count: int = 0
+    duration_seconds: float = 0.0
+    warnings: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, object]:
+        return asdict(self)
 
 
 @dataclass

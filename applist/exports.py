@@ -7,10 +7,38 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import APP_NAME, APP_VERSION
-from .models import Application
+from .models import Application, ScanDiagnostic
 
 
-def write_txt_export(apps: List[Application], filepath: str):
+def _diagnostic_dicts(diagnostics: Optional[List[ScanDiagnostic]]) -> List[Dict[str, Any]]:
+    return [diagnostic.to_dict() for diagnostic in diagnostics or []]
+
+
+def _has_reportable_diagnostics(diagnostics: Optional[List[ScanDiagnostic]]) -> bool:
+    return any(
+        diagnostic.status in {"skipped", "warning", "failed"} or diagnostic.warnings
+        for diagnostic in diagnostics or []
+    )
+
+
+def _write_text_diagnostics(f, diagnostics: Optional[List[ScanDiagnostic]]):
+    if not _has_reportable_diagnostics(diagnostics):
+        return
+    f.write("Scan Diagnostics\n")
+    f.write("-" * 80 + "\n")
+    for diagnostic in diagnostics or []:
+        if diagnostic.status not in {"skipped", "warning", "failed"} and not diagnostic.warnings:
+            continue
+        f.write(
+            f"{diagnostic.source}: {diagnostic.status}; "
+            f"rows={diagnostic.row_count}; duration={diagnostic.duration_seconds:.3f}s\n"
+        )
+        for warning in diagnostic.warnings:
+            f.write(f"  Warning: {warning}\n")
+    f.write("\n")
+
+
+def write_txt_export(apps: List[Application], filepath: str, diagnostics: Optional[List[ScanDiagnostic]] = None):
     """Write applications to a TXT report."""
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write("=" * 100 + "\n")
@@ -18,6 +46,7 @@ def write_txt_export(apps: List[Application], filepath: str):
         f.write(f"  Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"  Total Applications: {len(apps)}\n")
         f.write("=" * 100 + "\n\n")
+        _write_text_diagnostics(f, diagnostics)
 
         for i, app in enumerate(apps, 1):
             f.write(f"[{i:04d}] {app.name}\n")
@@ -110,7 +139,7 @@ def get_markdown_groups(apps: List[Application]) -> List[Tuple[str, List[Applica
     return [(group_titles.get(app_type, app_type), groups[app_type]) for app_type in ordered_types]
 
 
-def write_markdown_export(apps: List[Application], filepath: str):
+def write_markdown_export(apps: List[Application], filepath: str, diagnostics: Optional[List[ScanDiagnostic]] = None):
     """Write applications to a Markdown report grouped by type."""
     hostname = os.environ.get("COMPUTERNAME", "Unknown")
     username = os.environ.get("USERNAME", "Unknown")
@@ -131,6 +160,19 @@ def write_markdown_export(apps: List[Application], filepath: str):
         f.write(f"**Machine:** `{hostname}` / `{username}`  \n")
         f.write(f"**Total:** {len(apps)} applications  \n\n")
         f.write("---\n\n")
+        if _has_reportable_diagnostics(diagnostics):
+            f.write("## Scan Diagnostics\n\n")
+            f.write("| Source | Status | Rows | Duration | Warnings |\n")
+            f.write("|--------|--------|------|----------|----------|\n")
+            for diagnostic in diagnostics or []:
+                if diagnostic.status not in {"skipped", "warning", "failed"} and not diagnostic.warnings:
+                    continue
+                warnings = "<br>".join(w.replace("|", "\\|") for w in diagnostic.warnings)
+                f.write(
+                    f"| {diagnostic.source} | {diagnostic.status} | {diagnostic.row_count} | "
+                    f"{diagnostic.duration_seconds:.3f}s | {warnings} |\n"
+                )
+            f.write("\n")
 
         for group_name, group in get_markdown_groups(apps):
             if not group:
@@ -143,7 +185,7 @@ def write_markdown_export(apps: List[Application], filepath: str):
             f.write("\n")
 
 
-def write_json_export(apps: List[Application], filepath: str):
+def write_json_export(apps: List[Application], filepath: str, diagnostics: Optional[List[ScanDiagnostic]] = None):
     """Write applications to AppList JSON."""
     hostname = os.environ.get("COMPUTERNAME", "Unknown")
     export_data = {
@@ -153,6 +195,8 @@ def write_json_export(apps: List[Application], filepath: str):
         "total": len(apps),
         "applications": [app.to_dict() for app in apps],
     }
+    if _has_reportable_diagnostics(diagnostics):
+        export_data["diagnostics"] = _diagnostic_dicts(diagnostics)
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(export_data, f, indent=2, ensure_ascii=False)
 
@@ -342,7 +386,7 @@ def write_diff_report(diff: Dict[str, Any], filepath: Optional[str] = None) -> s
     return report
 
 
-def write_html_export(apps: List[Application], filepath: str):
+def write_html_export(apps: List[Application], filepath: str, diagnostics: Optional[List[ScanDiagnostic]] = None):
     """Write a self-contained HTML dashboard with sortable, searchable table."""
     import html as html_mod
     hostname = os.environ.get("COMPUTERNAME", "Unknown")
@@ -387,6 +431,30 @@ def write_html_export(apps: List[Application], filepath: str):
         f'<div class="stat-label">{html_mod.escape(app_type)}</div></div>'
         for app_type, count in sorted(type_counts.items(), key=lambda x: -x[1])
     )
+    diagnostics_html = ""
+    if _has_reportable_diagnostics(diagnostics):
+        diagnostic_rows = []
+        for diagnostic in diagnostics or []:
+            if diagnostic.status not in {"skipped", "warning", "failed"} and not diagnostic.warnings:
+                continue
+            warnings = "<br>".join(html_mod.escape(warning) for warning in diagnostic.warnings)
+            diagnostic_rows.append(
+                "<tr>"
+                f"<td>{html_mod.escape(diagnostic.source)}</td>"
+                f"<td>{html_mod.escape(diagnostic.status)}</td>"
+                f"<td>{diagnostic.row_count}</td>"
+                f"<td>{diagnostic.duration_seconds:.3f}s</td>"
+                f"<td>{warnings}</td>"
+                "</tr>"
+            )
+        diagnostics_html = (
+            '<section class="diagnostics">'
+            "<h2>Scan Diagnostics</h2>"
+            "<table><thead><tr><th>Source</th><th>Status</th><th>Rows</th>"
+            "<th>Duration</th><th>Warnings</th></tr></thead><tbody>"
+            + "\n".join(diagnostic_rows)
+            + "</tbody></table></section>"
+        )
 
     total = len(apps)
     html_content = f"""<!DOCTYPE html>
@@ -416,6 +484,8 @@ body {{ font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); c
 .toolbar input:focus {{ border-color: var(--blue); }}
 .toolbar .count {{ color: var(--subtext); font-size: 13px; margin-left: auto; }}
 .table-wrap {{ padding: 0 32px 32px; overflow-x: auto; }}
+.diagnostics {{ margin: 0 32px 18px; padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }}
+.diagnostics h2 {{ font-size: 16px; margin-bottom: 10px; color: var(--yellow); }}
 table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
 th {{ background: var(--surface); position: sticky; top: 0; cursor: pointer; user-select: none;
       padding: 10px 12px; text-align: left; border-bottom: 2px solid var(--border); white-space: nowrap; }}
@@ -443,6 +513,7 @@ a:hover {{ text-decoration: underline; }}
   <input id="search" type="text" placeholder="Search applications..." oninput="filterTable()">
   <span class="count" id="count">Showing {total} of {total}</span>
 </div>
+{diagnostics_html}
 <div class="table-wrap">
 <table id="appTable">
 <thead><tr>

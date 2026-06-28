@@ -1,6 +1,6 @@
 # AppList
 
-![Version](https://img.shields.io/badge/version-v1.6.7-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
+![Version](https://img.shields.io/badge/version-v1.6.8-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
 
 A Windows application inventory tool for scanning, cataloging, comparing, and exporting installed software before migrations, rebuilds, audits, and reinstall planning.
 
@@ -16,6 +16,7 @@ A Windows application inventory tool for scanning, cataloging, comparing, and ex
 - Locale-safe Winget cross-reference for package IDs, update availability, and pin status
 - Last-used date enrichment from UserAssist and Windows Prefetch evidence when accessible
 - SHA-256 hashing of discovered executables with cached VirusTotal report links
+- Per-source scan diagnostics for skipped, warning, and failed inventory phases
 
 ### Detailed Information Captured
 - Application name, publisher, version, install date, last-used date, source, type, architecture, and size
@@ -33,6 +34,7 @@ A Windows application inventory tool for scanning, cataloging, comparing, and ex
 - Live search across names, publishers, versions, paths, sources, types, and Winget IDs
 - Type, source, and upgrade/data-quality filters
 - First-run, scanning, no-match, error, and empty-result states
+- Warning status when a scan completes with skipped or degraded sources
 - Context menu actions that disable when unavailable
 
 ### Export Options
@@ -131,6 +133,7 @@ Full AppList schema with machine name, generation timestamp, and application rec
 - Parses UserAssist and Prefetch activity on a best-effort basis for last-used timestamps
 - Caches executable SHA-256 hashes in `%APPDATA%\AppList\wingetlist-sha-cache.json`
 - Uses `Microsoft.WinGet.Client` on PowerShell 7+ for structured winget package data, with JSON and locale-aware `winget.exe` fallback
+- JSON, TXT, Markdown, and HTML exports include scan diagnostics when an inventory source is skipped or degraded
 - DPI-aware rendering
 - Thread-safe scanning with cancellation support
 - Pinned release dependency lock with local `pip-audit` verification and PyInstaller build enforcement
@@ -142,4 +145,4 @@ MIT License - Free for personal and commercial use.
 
 ---
 
-*AppList v1.6.7*
+*AppList v1.6.8*

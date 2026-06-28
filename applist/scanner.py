@@ -11,9 +11,10 @@ import sys
 import winreg
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from time import monotonic
+from typing import Callable, Dict, List, Optional, Tuple
 
-from .models import Application
+from .models import Application, ScanDiagnostic
 from .constants import REGISTRY_PATHS
 
 try:
@@ -44,8 +45,10 @@ class ApplicationScanner:
         self.progress_callback = progress_callback
         self.status_callback = status_callback
         self.applications: List[Application] = []
+        self.scan_diagnostics: List[ScanDiagnostic] = []
         self.seen_apps: set = set()
         self._cancelled = False
+        self._active_diagnostic: Optional[ScanDiagnostic] = None
 
     def cancel(self):
         """Cancel the scanning operation."""
@@ -60,7 +63,38 @@ class ApplicationScanner:
             self.status_callback(status)
 
     def _log_warning(self, message: str):
+        if self._active_diagnostic is not None:
+            self._active_diagnostic.warnings.append(message)
         print(f"Warning: {message}", file=sys.stderr)
+
+    def _record_skipped_source(self, source: str):
+        self.scan_diagnostics.append(ScanDiagnostic(source=source, status="skipped"))
+
+    def _run_diagnostic_step(
+        self,
+        source: str,
+        scanner: Callable[[], List[Application]],
+    ) -> List[Application]:
+        diagnostic = ScanDiagnostic(source=source, status="running")
+        self.scan_diagnostics.append(diagnostic)
+        previous_diagnostic = self._active_diagnostic
+        self._active_diagnostic = diagnostic
+        started = monotonic()
+        try:
+            rows = scanner()
+        except Exception as e:
+            diagnostic.status = "failed"
+            diagnostic.warnings.append(str(e))
+            print(f"Warning: {source} scan failed: {e}", file=sys.stderr)
+            rows = []
+        finally:
+            diagnostic.duration_seconds = round(monotonic() - started, 3)
+            self._active_diagnostic = previous_diagnostic
+
+        diagnostic.row_count = len(rows)
+        if diagnostic.status == "running":
+            diagnostic.status = "warning" if diagnostic.warnings else "ok"
+        return rows
 
     def _normalize_name(self, name: str) -> str:
         """Normalize application name for deduplication."""
@@ -1194,68 +1228,83 @@ class ApplicationScanner:
         """Perform comprehensive scan of all sources."""
         self._cancelled = False
         self.applications = []
+        self.scan_diagnostics = []
         self.seen_apps = set()
+        self._active_diagnostic = None
 
         def source_enabled(source: str) -> bool:
             return include_sources is None or source in include_sources
 
-        # Scan registry (primary source)
-        if source_enabled("registry"):
-            self._update_status("Phase 1/9: Scanning Windows Registry...")
-            registry_apps = self.scan_registry()
-            self.applications.extend(registry_apps)
+        def add_source(source_key: str, source_name: str, status: str, scanner: Callable[[], List[Application]]):
+            if source_enabled(source_key):
+                self._update_status(status)
+                rows = self._run_diagnostic_step(source_name, scanner)
+                self.applications.extend(rows)
+                return
+            self._record_skipped_source(source_name)
 
-            if self._cancelled:
-                return self.applications
+        # Scan registry (primary source)
+        add_source(
+            "registry",
+            "Windows Registry",
+            "Phase 1/9: Scanning Windows Registry...",
+            self.scan_registry,
+        )
+        if self._cancelled:
+            return self.applications
 
         # Scan Store apps
-        if source_enabled("store"):
-            self._update_status("Phase 2/9: Scanning Microsoft Store apps...")
-            store_apps = self.scan_store_apps()
-            self.applications.extend(store_apps)
-
-            if self._cancelled:
-                return self.applications
+        add_source(
+            "store",
+            "Microsoft Store",
+            "Phase 2/9: Scanning Microsoft Store apps...",
+            self.scan_store_apps,
+        )
+        if self._cancelled:
+            return self.applications
 
         # Scan Program Files
-        if source_enabled("program_files"):
-            self._update_status("Phase 3/9: Scanning Program Files...")
-            folder_apps = self.scan_program_files()
-            self.applications.extend(folder_apps)
-
-            if self._cancelled:
-                return self.applications
+        add_source(
+            "program_files",
+            "Program Files",
+            "Phase 3/9: Scanning Program Files...",
+            self.scan_program_files,
+        )
+        if self._cancelled:
+            return self.applications
 
         # Scan Chocolatey packages
-        if source_enabled("chocolatey"):
-            self._update_status("Phase 4/9: Scanning Chocolatey packages...")
-            choco_apps = self.scan_chocolatey()
-            self.applications.extend(choco_apps)
-
-            if self._cancelled:
-                return self.applications
+        add_source(
+            "chocolatey",
+            "Chocolatey",
+            "Phase 4/9: Scanning Chocolatey packages...",
+            self.scan_chocolatey,
+        )
+        if self._cancelled:
+            return self.applications
 
         # Scan Scoop packages
-        if source_enabled("scoop"):
-            self._update_status("Phase 5/9: Scanning Scoop packages...")
-            scoop_apps = self.scan_scoop()
-            self.applications.extend(scoop_apps)
-
-            if self._cancelled:
-                return self.applications
+        add_source(
+            "scoop",
+            "Scoop",
+            "Phase 5/9: Scanning Scoop packages...",
+            self.scan_scoop,
+        )
+        if self._cancelled:
+            return self.applications
 
         # Scan pip packages
-        if source_enabled("pip"):
-            self._update_status("Phase 6/9: Scanning Python (pip) packages...")
-            pip_apps = self.scan_pip()
-            self.applications.extend(pip_apps)
-
-            if self._cancelled:
-                return self.applications
+        add_source(
+            "pip",
+            "Python (pip)",
+            "Phase 6/9: Scanning Python (pip) packages...",
+            self.scan_pip,
+        )
+        if self._cancelled:
+            return self.applications
 
         # Cross-reference with winget for package IDs and upgrade status
-        if source_enabled("winget"):
-            self._update_status("Phase 7/9: Cross-referencing with winget...")
+        def scan_winget_cross_reference() -> List[Application]:
             winget_client_maps = self._build_winget_client_maps()
             if winget_client_maps is not None:
                 winget_map, upgrade_map = winget_client_maps
@@ -1281,9 +1330,24 @@ class ApplicationScanner:
                 for app in self.applications:
                     if app.winget_id and app.winget_id in pin_map:
                         app.pin_status = pin_map[app.winget_id]
+            return [app for app in self.applications if app.winget_id]
 
-        self._apply_last_used_dates()
-        self._apply_virustotal_hashes()
+        if source_enabled("winget"):
+            self._update_status("Phase 7/9: Cross-referencing with winget...")
+            self._run_diagnostic_step("winget", scan_winget_cross_reference)
+        else:
+            self._record_skipped_source("winget")
+
+        def scan_last_used() -> List[Application]:
+            self._apply_last_used_dates()
+            return [app for app in self.applications if app.last_used_date]
+
+        def scan_virustotal_hashes() -> List[Application]:
+            self._apply_virustotal_hashes()
+            return [app for app in self.applications if app.sha256_hash]
+
+        self._run_diagnostic_step("Last-used activity", scan_last_used)
+        self._run_diagnostic_step("Executable hashing", scan_virustotal_hashes)
 
         # Ghost entry detection: flag apps whose install location doesn't exist
         for app in self.applications:

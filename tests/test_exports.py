@@ -13,8 +13,9 @@ from applist.exports import (
     write_json_export,
     write_markdown_export,
     write_pip_requirements_export,
+    write_txt_export,
 )
-from applist.models import Application
+from applist.models import Application, ScanDiagnostic
 
 
 class ExportTests(unittest.TestCase):
@@ -82,6 +83,41 @@ class ExportTests(unittest.TestCase):
             self.assertIn("requests==2.32.3", pip_path.read_text(encoding="utf-8"))
             self.assertEqual(choco_count, 1)
             self.assertIn('id="git"', choco_path.read_text(encoding="utf-8"))
+
+    def test_report_exports_include_partial_scan_diagnostics(self):
+        apps = [Application(name="Alpha", source="HKLM64")]
+        diagnostics = [
+            ScanDiagnostic(source="Windows Registry", status="ok", row_count=1, duration_seconds=0.1),
+            ScanDiagnostic(
+                source="Microsoft Store",
+                status="failed",
+                row_count=0,
+                duration_seconds=0.2,
+                warnings=["PowerShell unavailable"],
+            ),
+            ScanDiagnostic(source="Scoop", status="skipped"),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            txt_path = root / "apps.txt"
+            json_path = root / "apps.json"
+            md_path = root / "apps.md"
+            html_path = root / "apps.html"
+
+            write_txt_export(apps, str(txt_path), diagnostics)
+            write_json_export(apps, str(json_path), diagnostics)
+            write_markdown_export(apps, str(md_path), diagnostics)
+            write_html_export(apps, str(html_path), diagnostics)
+
+            self.assertIn("Scan Diagnostics", txt_path.read_text(encoding="utf-8"))
+            json_data = json.loads(json_path.read_text(encoding="utf-8"))
+            self.assertEqual(json_data["diagnostics"][1]["source"], "Microsoft Store")
+            self.assertEqual(json_data["diagnostics"][1]["status"], "failed")
+            self.assertIn("Scoop", md_path.read_text(encoding="utf-8"))
+            html = html_path.read_text(encoding="utf-8")
+            self.assertIn("Scan Diagnostics", html)
+            self.assertIn("PowerShell unavailable", html)
 
     def test_markdown_groups_preserve_unknown_types(self):
         groups = get_markdown_groups(
