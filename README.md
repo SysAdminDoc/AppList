@@ -1,6 +1,6 @@
 # AppList
 
-![Version](https://img.shields.io/badge/version-v1.6.5-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
+![Version](https://img.shields.io/badge/version-v1.6.6-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
 
 A Windows application inventory tool for scanning, cataloging, comparing, and exporting installed software before migrations, rebuilds, audits, and reinstall planning.
 
@@ -13,7 +13,7 @@ A Windows application inventory tool for scanning, cataloging, comparing, and ex
 - Microsoft Store / AppX packages via PowerShell
 - Program Files discovery for unregistered desktop apps
 - Chocolatey, Scoop, and Python pip package inventories
-- Structured Winget cross-reference for package IDs, update availability, and pin status
+- Locale-safe Winget cross-reference for package IDs, update availability, and pin status
 - Last-used date enrichment from UserAssist and Windows Prefetch evidence when accessible
 - SHA-256 hashing of discovered executables with cached VirusTotal report links
 
@@ -129,7 +129,7 @@ Full AppList schema with machine name, generation timestamp, and application rec
 - Filters system components, Windows updates, framework packages, and duplicate entries
 - Parses UserAssist and Prefetch activity on a best-effort basis for last-used timestamps
 - Caches executable SHA-256 hashes in `%APPDATA%\AppList\wingetlist-sha-cache.json`
-- Uses `Microsoft.WinGet.Client` on PowerShell 7+ for structured winget package data, with `winget.exe` fallback
+- Uses `Microsoft.WinGet.Client` on PowerShell 7+ for structured winget package data, with JSON and locale-aware `winget.exe` fallback
 - DPI-aware rendering
 - Thread-safe scanning with cancellation support
 - Local PyInstaller build script for single-file Windows executable generation
@@ -140,4 +140,4 @@ MIT License - Free for personal and commercial use.
 
 ---
 
-*AppList v1.6.5*
+*AppList v1.6.6*

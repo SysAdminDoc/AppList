@@ -28,13 +28,6 @@ Remaining incomplete work only. Completed items are deleted. Blocked items belon
 
 ## Research-Driven Additions
 
-- [ ] P0 - Locale-safe winget adapter
-  Why: `applist/scanner.py` falls back to parsing localized `winget list` table headers, and public winget issues show CLI output language can drift unexpectedly.
-  Evidence: `applist/scanner.py` `_parse_winget_table`; https://github.com/microsoft/winget-cli/issues/6282
-  Touches: `applist/scanner.py`, `tests/test_scanner.py`
-  Acceptance: winget matching works from structured client data, JSON output, and localized/unknown table fixtures without silently dropping matches.
-  Complexity: M
-
 - [ ] P0 - Lock and audit release dependencies
   Why: `requirements.txt` allows unvalidated major dependency upgrades, including customtkinter 6.0.0 from 2026-06-24.
   Evidence: `requirements.txt`; https://pypi.org/project/customtkinter/; https://pypi.org/project/pip-audit/; https://pip.pypa.io/en/stable/topics/secure-installs/

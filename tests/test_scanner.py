@@ -140,6 +140,58 @@ class ScannerTests(unittest.TestCase):
         self.assertEqual(packages[0]["Id"], "Acme.Alpha")
         self.assertEqual(packages[1]["Version"], "2.0.0")
 
+    def test_parse_winget_table_handles_localized_headers_by_package_id(self):
+        output = "\n".join(
+            [
+                "Nom                   Identifiant                Version",
+                "----------------------------------------------------------",
+                "Alpha App             Acme.Alpha                 1.0.0",
+                "Beta Tool             Contoso.Beta               2.0.0",
+            ]
+        )
+
+        packages = ApplicationScanner()._parse_winget_table(output)
+
+        self.assertEqual(packages[0], {"Name": "Alpha App", "Id": "Acme.Alpha", "Version": "1.0.0"})
+        self.assertEqual(packages[1], {"Name": "Beta Tool", "Id": "Contoso.Beta", "Version": "2.0.0"})
+
+    def test_parse_winget_json_packages_handles_nested_shapes(self):
+        output = json.dumps(
+            {
+                "Sources": [
+                    {
+                        "Packages": [
+                            {
+                                "PackageName": "Alpha App",
+                                "PackageIdentifier": "Acme.Alpha",
+                                "PackageVersion": "1.0.0",
+                            }
+                        ]
+                    }
+                ]
+            }
+        )
+
+        packages = ApplicationScanner()._parse_winget_json_packages(output)
+
+        self.assertEqual(packages[0]["PackageName"], "Alpha App")
+        self.assertEqual(ApplicationScanner()._winget_package_field(packages[0], "Id"), "Acme.Alpha")
+
+    def test_winget_map_warns_when_text_output_is_unparseable(self):
+        scanner = ApplicationScanner()
+        json_failure = mock.Mock(returncode=1, stdout="")
+        text_result = mock.Mock(returncode=0, stdout="sortie inconnue sans colonnes ni identifiants")
+
+        with mock.patch.object(scanner_module.subprocess, "run", side_effect=[json_failure, text_result]), mock.patch.object(
+            scanner, "_log_warning"
+        ) as warning_mock:
+            winget_map = scanner._build_winget_map()
+
+        self.assertEqual(winget_map, {})
+        warning_mock.assert_called_with(
+            "winget text output could not be parsed; structured output is required for this locale."
+        )
+
     def test_winget_client_maps_use_structured_winget_packages(self):
         scanner = ApplicationScanner()
         packages = [

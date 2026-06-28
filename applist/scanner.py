@@ -899,12 +899,7 @@ class ApplicationScanner:
             )
             packages: List[Dict[str, str]] = []
             if result.returncode == 0 and result.stdout.strip():
-                try:
-                    data = json.loads(result.stdout)
-                    if isinstance(data, list) and data:
-                        packages = data
-                except json.JSONDecodeError:
-                    pass
+                packages = self._parse_winget_json_packages(result.stdout)
 
             # Fall back to tabular text parsing
             if not packages:
@@ -916,10 +911,14 @@ class ApplicationScanner:
                 )
                 if result.returncode == 0:
                     packages = self._parse_winget_table(result.stdout)
+                    if not packages and result.stdout.strip():
+                        self._log_warning(
+                            "winget text output could not be parsed; structured output is required for this locale."
+                        )
 
             for pkg in packages:
-                name = str(pkg.get("Name", "")).strip()
-                winget_id = str(pkg.get("Id", "")).strip()
+                name = self._winget_package_field(pkg, "Name")
+                winget_id = self._winget_package_field(pkg, "Id")
                 if name and winget_id:
                     winget_map[self._normalize_name(name)] = winget_id
 
@@ -927,6 +926,48 @@ class ApplicationScanner:
             self._log_warning(f"winget list cross-reference failed: {e}")
 
         return winget_map
+
+    def _winget_package_field(self, pkg: Dict[str, object], field: str) -> str:
+        aliases = {
+            "Name": ("Name", "PackageName", "Package", "DisplayName"),
+            "Id": ("Id", "PackageIdentifier", "PackageId", "Identifier"),
+            "Version": ("Version", "InstalledVersion", "PackageVersion"),
+        }
+        for key in aliases.get(field, (field,)):
+            value = pkg.get(key)
+            if value is not None:
+                return str(value).strip()
+        return ""
+
+    def _parse_winget_json_packages(self, output: str) -> List[Dict[str, object]]:
+        """Normalize known winget JSON shapes into package dictionaries."""
+        try:
+            data = json.loads(output)
+        except json.JSONDecodeError:
+            return []
+
+        packages: List[Dict[str, object]] = []
+
+        def visit(node):
+            if isinstance(node, list):
+                for item in node:
+                    visit(item)
+                return
+            if not isinstance(node, dict):
+                return
+
+            has_name = any(key in node for key in ("Name", "PackageName", "DisplayName"))
+            has_id = any(key in node for key in ("Id", "PackageIdentifier", "PackageId", "Identifier"))
+            if has_name and has_id:
+                packages.append(node)
+                return
+
+            for key in ("Packages", "Data", "Items", "Sources", "Results", "Upgradeable"):
+                if key in node:
+                    visit(node[key])
+
+        visit(data)
+        return packages
 
     def _run_winget_client_packages(self) -> Optional[List[Dict[str, object]]]:
         """Read structured package data from Microsoft.WinGet.Client on PowerShell 7+."""
@@ -996,14 +1037,14 @@ class ApplicationScanner:
                 header_idx = i
                 break
         if header_idx < 0:
-            return packages
+            return self._parse_winget_table_by_package_id(output)
 
         header = lines[header_idx]
         name_pos = header.find("Name")
         id_pos = header.find("Id")
         ver_pos = header.find("Version")
         if name_pos < 0 or id_pos < 0:
-            return packages
+            return self._parse_winget_table_by_package_id(output)
 
         for line in lines[header_idx + 2:]:
             if not line.strip():
@@ -1024,6 +1065,35 @@ class ApplicationScanner:
                     packages.append({"Name": name, "Id": winget_id, "Version": version})
             except (IndexError, ValueError):
                 continue
+
+        if packages:
+            return packages
+
+        return self._parse_winget_table_by_package_id(output)
+
+    def _parse_winget_table_by_package_id(self, output: str) -> List[Dict[str, str]]:
+        """Parse localized winget table rows by locating package identifiers."""
+        packages: List[Dict[str, str]] = []
+        package_id_pattern = re.compile(
+            r"(?<!\\)\b[A-Za-z0-9][A-Za-z0-9_.+-]*(?:\.[A-Za-z0-9][A-Za-z0-9_.+-]*)+\b"
+        )
+
+        for line in output.splitlines():
+            stripped = line.strip()
+            if not stripped or set(stripped) <= {"-", " "}:
+                continue
+            match = package_id_pattern.search(line)
+            if not match:
+                continue
+
+            name = line[:match.start()].strip()
+            package_id = match.group(0).strip()
+            rest = line[match.end():].strip()
+            version = rest.split()[0] if rest else ""
+
+            if not name or name.lower() in {"name", "nom", "nombre", "名称", "名前"}:
+                continue
+            packages.append({"Name": name, "Id": package_id, "Version": version})
 
         return packages
 
