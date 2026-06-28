@@ -1,6 +1,6 @@
 # AppList
 
-![Version](https://img.shields.io/badge/version-v1.6.6-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
+![Version](https://img.shields.io/badge/version-v1.6.7-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
 
 A Windows application inventory tool for scanning, cataloging, comparing, and exporting installed software before migrations, rebuilds, audits, and reinstall planning.
 
@@ -95,10 +95,11 @@ Supported source filters: `all`, `desktop`, `registry`, `store`, `program_files`
 
 ```bash
 python -m unittest discover -s tests
+powershell -ExecutionPolicy Bypass -File tools/verify_release_dependencies.ps1
 powershell -ExecutionPolicy Bypass -File tools/build_exe.ps1
 ```
 
-The build script creates `dist/AppList.exe` locally with PyInstaller and uses a local code-signing certificate when one is available.
+Dependencies are exact-pinned in `requirements.txt`. The release verifier creates a clean local virtual environment, installs the locked dependency set, runs `pip-audit`, runs tests, and imports the GUI against the pinned customtkinter version. The build script installs from the same lock file before creating `dist/AppList.exe` with PyInstaller and uses a local code-signing certificate when one is available.
 
 ## Export Formats
 
@@ -132,6 +133,7 @@ Full AppList schema with machine name, generation timestamp, and application rec
 - Uses `Microsoft.WinGet.Client` on PowerShell 7+ for structured winget package data, with JSON and locale-aware `winget.exe` fallback
 - DPI-aware rendering
 - Thread-safe scanning with cancellation support
+- Pinned release dependency lock with local `pip-audit` verification and PyInstaller build enforcement
 - Local PyInstaller build script for single-file Windows executable generation
 
 ## License
@@ -140,4 +142,4 @@ MIT License - Free for personal and commercial use.
 
 ---
 
-*AppList v1.6.6*
+*AppList v1.6.7*

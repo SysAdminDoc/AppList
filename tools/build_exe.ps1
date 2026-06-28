@@ -2,7 +2,16 @@
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
+$venvPath = Join-Path $repoRoot "work\build-venv"
+$pythonPath = Join-Path $venvPath "Scripts\python.exe"
 Set-Location $repoRoot
+
+if (Test-Path -LiteralPath $venvPath) {
+    Remove-Item -LiteralPath $venvPath -Recurse -Force
+}
+
+py -m venv $venvPath
+& $pythonPath -m pip install --requirement requirements.txt
 
 if (Test-Path -LiteralPath "dist") {
     Remove-Item -LiteralPath "dist" -Recurse -Force
@@ -11,7 +20,7 @@ if (Test-Path -LiteralPath "build") {
     Remove-Item -LiteralPath "build" -Recurse -Force
 }
 
-py -m PyInstaller `
+& $pythonPath -m PyInstaller `
     --noconfirm `
     --clean `
     --onefile `

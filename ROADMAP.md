@@ -28,13 +28,6 @@ Remaining incomplete work only. Completed items are deleted. Blocked items belon
 
 ## Research-Driven Additions
 
-- [ ] P0 - Lock and audit release dependencies
-  Why: `requirements.txt` allows unvalidated major dependency upgrades, including customtkinter 6.0.0 from 2026-06-24.
-  Evidence: `requirements.txt`; https://pypi.org/project/customtkinter/; https://pypi.org/project/pip-audit/; https://pip.pypa.io/en/stable/topics/secure-installs/
-  Touches: `requirements.txt`, release docs, build script, tests
-  Acceptance: a clean environment installs reproducible pinned versions, `pip-audit` passes locally, and UI smoke tests run against the pinned customtkinter version.
-  Complexity: M
-
 - [ ] P0 - Visible scan diagnostics and partial-failure report
   Why: source failures currently print to stderr, which GUI users can miss while receiving a seemingly complete inventory.
   Evidence: `applist/scanner.py` `_log_warning`; BCUninstaller and Intune both surface inventory status and refresh limitations.
