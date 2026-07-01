@@ -25,6 +25,41 @@ def _has_reportable_diagnostics(diagnostics: Optional[List[ScanDiagnostic]]) -> 
     )
 
 
+def redact_applications(apps: List[Application]) -> List[Application]:
+    """Return copies of applications with privacy-sensitive fields redacted."""
+    import copy
+    import re
+    username = os.environ.get("USERNAME", "")
+    userprofile = os.environ.get("USERPROFILE", "")
+    hostname = os.environ.get("COMPUTERNAME", "")
+
+    def _redact_path(value: str) -> str:
+        if not value:
+            return value
+        result = value
+        if userprofile:
+            result = result.replace(userprofile, "%USERPROFILE%")
+        if username and len(username) > 2:
+            result = re.sub(re.escape(username), "<REDACTED>", result, flags=re.IGNORECASE)
+        return result
+
+    redacted = []
+    for app in apps:
+        r = copy.copy(app)
+        r.install_location = _redact_path(r.install_location)
+        r.executable_path = _redact_path(r.executable_path)
+        r.uninstall_registry_key = ""
+        r.uninstall_command = ""
+        r.sha256_hash = ""
+        r.virustotal_url = ""
+        redacted.append(r)
+    return redacted
+
+
+def _redact_hostname(hostname: str) -> str:
+    return "<REDACTED>" if hostname and hostname != "Unknown" else hostname
+
+
 def _write_text_diagnostics(f, diagnostics: Optional[List[ScanDiagnostic]]):
     if not _has_reportable_diagnostics(diagnostics):
         return

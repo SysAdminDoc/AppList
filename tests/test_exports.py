@@ -9,6 +9,7 @@ from applist import JSON_SCHEMA_VERSION
 from applist.exports import (
     diff_json_snapshots,
     get_markdown_groups,
+    redact_applications,
     validate_restore_bundle,
     write_choco_export,
     write_csv_export,
@@ -322,6 +323,33 @@ class ExportTests(unittest.TestCase):
         result = validate_restore_bundle("/nonexistent/bundle.zip")
         self.assertFalse(result["valid"])
         self.assertTrue(any("not found" in e for e in result["errors"]))
+
+    def test_redact_applications_strips_sensitive_fields(self):
+        from unittest import mock
+        apps = [
+            Application(
+                name="Alpha",
+                install_location=r"C:\Users\TestUser\AppData\Alpha",
+                executable_path=r"C:\Users\TestUser\AppData\Alpha\alpha.exe",
+                uninstall_registry_key=r"HKLM\SOFTWARE\Alpha",
+                uninstall_command=r"C:\Alpha\uninstall.exe",
+                sha256_hash="abc123",
+                virustotal_url="https://www.virustotal.com/gui/file/abc123",
+            ),
+        ]
+        with mock.patch.dict("os.environ", {"USERNAME": "TestUser", "USERPROFILE": r"C:\Users\TestUser", "COMPUTERNAME": "TESTPC"}):
+            redacted = redact_applications(apps)
+
+        self.assertEqual(len(redacted), 1)
+        r = redacted[0]
+        self.assertEqual(r.name, "Alpha")
+        self.assertNotIn("TestUser", r.install_location)
+        self.assertNotIn("TestUser", r.executable_path)
+        self.assertEqual(r.uninstall_registry_key, "")
+        self.assertEqual(r.uninstall_command, "")
+        self.assertEqual(r.sha256_hash, "")
+        self.assertEqual(r.virustotal_url, "")
+        self.assertEqual(apps[0].sha256_hash, "abc123")
 
 
 if __name__ == "__main__":

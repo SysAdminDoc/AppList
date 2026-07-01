@@ -11,6 +11,7 @@ from . import APP_NAME, APP_VERSION
 from .constants import parse_include_sources
 from .scanner import ApplicationScanner
 from .exports import (
+    redact_applications,
     write_txt_export,
     write_csv_export,
     write_markdown_export,
@@ -83,6 +84,11 @@ def build_cli_parser() -> argparse.ArgumentParser:
         "--skip-last-used",
         action="store_true",
         help="Skip UserAssist and Prefetch last-used date enrichment.",
+    )
+    parser.add_argument(
+        "--redact",
+        action="store_true",
+        help="Redact machine names, usernames, local paths, registry keys, hashes, and URLs from exports.",
     )
     parser.add_argument("--version", action="version", version=f"{APP_NAME} v{APP_VERSION}")
     return parser
@@ -186,6 +192,9 @@ def run_cli(argv: List[str]) -> int:
             )
             for warning in diagnostic.warnings:
                 print(f"    Warning: {warning}", file=sys.stderr)
+
+    if args.redact:
+        apps = redact_applications(apps)
 
     writers = {
         "txt": write_txt_export,
