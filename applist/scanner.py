@@ -1361,12 +1361,13 @@ class ApplicationScanner:
 
         # Cross-reference with winget for package IDs and upgrade status
         def scan_winget_cross_reference() -> List[Application]:
-            winget_client_maps = self._build_winget_client_maps()
-            if winget_client_maps is not None:
-                winget_map, upgrade_map = winget_client_maps
+            raw_packages = self._run_winget_client_packages()
+            if raw_packages is not None:
+                winget_map, upgrade_map = self._build_winget_client_maps_from_packages(raw_packages)
             else:
                 winget_map = self._build_winget_map()
                 upgrade_map = self._build_upgrade_map()
+                raw_packages = []
 
             if winget_map:
                 for app in self.applications:
@@ -1386,6 +1387,34 @@ class ApplicationScanner:
                 for app in self.applications:
                     if app.winget_id and app.winget_id in pin_map:
                         app.pin_status = pin_map[app.winget_id]
+
+            matched_ids = {app.winget_id for app in self.applications if app.winget_id}
+            standalone = []
+            for pkg in raw_packages:
+                pkg_id = str(pkg.get("Id", "")).strip()
+                source = str(pkg.get("Source", "") or "").strip().lower()
+                if source != "winget" or not pkg_id or pkg_id in matched_ids:
+                    continue
+                name = str(pkg.get("Name", "")).strip()
+                norm = self._normalize_name(name)
+                if norm in self.seen_apps:
+                    continue
+                self.seen_apps.add(norm)
+                version = str(pkg.get("InstalledVersion", "") or pkg.get("Version", "") or "").strip()
+                app = Application(
+                    name=name,
+                    version=version,
+                    winget_id=pkg_id,
+                    source="winget",
+                    app_type="Winget",
+                )
+                if pkg_id in upgrade_map:
+                    app.upgrade_available = f"Update Available ({upgrade_map[pkg_id]})"
+                if pkg_id in pin_map:
+                    app.pin_status = pin_map[pkg_id]
+                standalone.append(app)
+                self.applications.append(app)
+
             return [app for app in self.applications if app.winget_id]
 
         if skip_network:
