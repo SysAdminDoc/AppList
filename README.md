@@ -18,6 +18,14 @@ A Windows application inventory tool for scanning, cataloging, comparing, and ex
 - SHA-256 hashing of discovered executables with cached VirusTotal report links
 - Per-source scan diagnostics for skipped, warning, and failed inventory phases
 - Package-manager consistency audit for Chocolatey/Scoop rows without local app evidence
+- Startup-item scanner for registry Run keys and Startup folders
+- Portable-app detection across user-local tools directories
+- Driver inventory via pnputil
+- Windows optional feature inventory
+- WSL distribution inventory
+- Standalone winget-only entries for apps not in registry
+- OEM bloatware flagging with curated publisher signatures
+- Measured directory size alongside estimated size
 
 ### Detailed Information Captured
 - Application name, publisher, version, install date, last-used date, source, type, architecture, and size
@@ -37,6 +45,10 @@ A Windows application inventory tool for scanning, cataloging, comparing, and ex
 - First-run, scanning, no-match, error, and empty-result states
 - Warning status when a scan completes with skipped or degraded sources
 - Context menu actions that disable when unavailable
+- Group-by dropdown for Source, Publisher, Install Year, and Drive
+- Column chooser with persistent layout saved to AppData
+- Before-vs-After baseline compare mode
+- Diagnostics panel with durable scan log
 
 ### Export Options
 - TXT report
@@ -48,6 +60,9 @@ A Windows application inventory tool for scanning, cataloging, comparing, and ex
 - pip `requirements.txt`
 - Chocolatey `packages.config`
 - Restore bundle ZIP with inventory, restore files, commands, and unmatched report
+- PowerShell install script with winget/pip/choco/scoop one-liners
+- Privacy-safe redacted exports via `--redact` flag
+- Intune-style compliance report via `--compliance` flag
 
 ### Diff / Compare
 - Compare two AppList JSON snapshots and report Added, Removed, and VersionChanged entries
@@ -88,13 +103,17 @@ python AppList.py --export html --output dashboard.html
 python AppList.py --export pip --output requirements.txt --include pip
 python AppList.py --export choco --output packages.config --include choco
 python AppList.py --export bundle --output restore-bundle.zip
+python AppList.py --export ps1 --output install.ps1
 python AppList.py --diff old_snapshot.json new_snapshot.json
 python AppList.py --diff old.json new.json -o report.json
+python AppList.py --validate-bundle restore-bundle.zip
+python AppList.py --compliance required-apps.txt -o compliance.json
+python AppList.py --export json --output apps.json --skip-network --skip-hashing --redact
 ```
 
-Supported export formats: `txt`, `csv`, `md`, `markdown`, `json`, `winget`, `html`, `pip`, `choco`, `bundle`.
+Supported export formats: `txt`, `csv`, `md`, `json`, `winget`, `html`, `pip`, `choco`, `ps1`, `bundle`.
 
-Supported source filters: `all`, `desktop`, `registry`, `store`, `program_files`, `chocolatey`, `scoop`, `pip`, `winget`.
+Supported source filters: `all`, `desktop`, `registry`, `store`, `program_files`, `chocolatey`, `scoop`, `pip`, `winget`, `startup`, `portable`, `drivers`, `features`, `wsl`.
 
 ### Tests and Local Build
 
@@ -136,7 +155,7 @@ ZIP or folder output containing AppList JSON, Winget import JSON, pip requiremen
 - Modular package layout with scanner, export, CLI, model, constants, and GUI modules
 - Runs with elevated privileges for complete registry access
 - Filters system components, Windows updates, framework packages, and duplicate entries
-- Parses UserAssist and Prefetch activity on a best-effort basis for last-used timestamps
+- Parses UserAssist, Prefetch, and AppCompatCache activity on a best-effort basis for last-used timestamps
 - Caches executable SHA-256 hashes in `%APPDATA%\AppList\wingetlist-sha-cache.json`
 - Uses `Microsoft.WinGet.Client` on PowerShell 7+ for structured winget package data, with JSON and locale-aware `winget.exe` fallback
 - JSON, TXT, Markdown, CSV, and HTML exports include package-manager consistency status
