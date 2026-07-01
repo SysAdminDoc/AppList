@@ -381,6 +381,44 @@ class ApplicationScanner:
             pass
         return apps
 
+    def _apply_pinned_locations(self):
+        """Detect Start Menu and Taskbar pinned items and annotate matching apps."""
+        pinned_names: Dict[str, str] = {}
+
+        appdata = os.environ.get("APPDATA", "")
+        if appdata:
+            taskbar_dir = os.path.join(appdata, r"Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar")
+            if os.path.isdir(taskbar_dir):
+                try:
+                    for f in os.listdir(taskbar_dir):
+                        if f.lower().endswith(".lnk"):
+                            name = os.path.splitext(f)[0]
+                            norm = self._normalize_name(name)
+                            pinned_names[norm] = pinned_names.get(norm, "") + "Taskbar"
+                except OSError:
+                    pass
+
+            start_pins_dir = os.path.join(appdata, r"Microsoft\Windows\Start Menu\Programs")
+            if os.path.isdir(start_pins_dir):
+                try:
+                    for f in os.listdir(start_pins_dir):
+                        if f.lower().endswith(".lnk"):
+                            name = os.path.splitext(f)[0]
+                            norm = self._normalize_name(name)
+                            existing = pinned_names.get(norm, "")
+                            if "Start" not in existing:
+                                pinned_names[norm] = (existing + ", Start Menu").lstrip(", ") if existing else "Start Menu"
+                except OSError:
+                    pass
+
+        if not pinned_names:
+            return
+
+        for app in self.applications:
+            norm = self._normalize_name(app.name)
+            if norm in pinned_names and not app.pin_status:
+                app.pin_status = pinned_names[norm]
+
     def _apply_bloatware_flags(self):
         for app in self.applications:
             publisher_lower = app.publisher.lower().strip()
@@ -1832,6 +1870,7 @@ class ApplicationScanner:
         self._run_diagnostic_step("Directory size measurement", measure_sizes)
 
         self._apply_bloatware_flags()
+        self._apply_pinned_locations()
 
         # Sort by name
         self.applications.sort(key=lambda x: x.name.lower())
