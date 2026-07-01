@@ -90,6 +90,11 @@ def build_cli_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Redact machine names, usernames, local paths, registry keys, hashes, and URLs from exports.",
     )
+    parser.add_argument(
+        "--emit-diagnostics",
+        metavar="DIAG_PATH",
+        help="Write scan diagnostics as JSON to the given path after export.",
+    )
     parser.add_argument("--version", action="version", version=f"{APP_NAME} v{APP_VERSION}")
     return parser
 
@@ -223,4 +228,16 @@ def run_cli(argv: List[str]) -> int:
     if isinstance(result, dict):
         exported_count = result.get("application_count", len(apps))
     print(f"Exported {exported_count} applications to {output_path}")
+
+    if args.emit_diagnostics:
+        diag_path = Path(args.emit_diagnostics).expanduser()
+        diag_path.parent.mkdir(parents=True, exist_ok=True)
+        diag_data = {
+            "generated": __import__("datetime").datetime.now().isoformat(),
+            "diagnostics": [d.to_dict() for d in diagnostics],
+        }
+        with open(str(diag_path), "w", encoding="utf-8") as f:
+            json.dump(diag_data, f, indent=2, ensure_ascii=False)
+        print(f"Diagnostics written to {diag_path}")
+
     return 0

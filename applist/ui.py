@@ -611,7 +611,10 @@ class AppListWindow(ctk.CTk):
         self.export_choco_btn.pack(side="left", padx=(0, 6))
 
         self.export_bundle_btn = SecondaryButton(export_frame, text="Bundle", width=84, command=self._export_bundle)
-        self.export_bundle_btn.pack(side="left")
+        self.export_bundle_btn.pack(side="left", padx=(0, 6))
+
+        self.diagnostics_btn = SecondaryButton(export_frame, text="Diag", width=60, command=self._show_diagnostics)
+        self.diagnostics_btn.pack(side="left")
 
     def _create_main_content(self):
         """Create the main content area with treeview."""
@@ -942,6 +945,8 @@ class AppListWindow(ctk.CTk):
         self.scan_button.configure(state="normal")
         self.cancel_button.configure(state="disabled")
         self._set_export_buttons_enabled(bool(self.filtered_apps))
+        self.diagnostics_btn.configure(state="normal" if self.scan_diagnostics else "disabled")
+        self._save_scan_log()
 
         if was_cancelled:
             self._update_status(f"Scan cancelled. Captured {len(apps)} applications before stopping.")
@@ -1592,6 +1597,41 @@ class AppListWindow(ctk.CTk):
             messagebox.showinfo("Registry Key Copied",
                 f"Could not open Regedit automatically.\n\n"
                 f"Key copied to clipboard:\n{reg_key}")
+
+    def _show_diagnostics(self):
+        if not self.scan_diagnostics:
+            messagebox.showinfo("Diagnostics", "No scan diagnostics available. Run a scan first.")
+            return
+        lines = []
+        for d in self.scan_diagnostics:
+            status_icon = {"ok": "✓", "skipped": "—", "warning": "⚠", "failed": "✗"}.get(d.status, "?")
+            line = f"{status_icon} {d.source}: {d.status}"
+            if d.row_count:
+                line += f" ({d.row_count} rows)"
+            if d.duration_seconds:
+                line += f" [{d.duration_seconds:.3f}s]"
+            lines.append(line)
+            for w in d.warnings:
+                lines.append(f"    {w}")
+        messagebox.showinfo("Scan Diagnostics", "\n".join(lines))
+
+    def _save_scan_log(self):
+        try:
+            appdata = os.environ.get("APPDATA", "")
+            if not appdata:
+                return
+            log_dir = os.path.join(appdata, "AppList")
+            os.makedirs(log_dir, exist_ok=True)
+            log_path = os.path.join(log_dir, "last_scan.json")
+            log_data = {
+                "generated": datetime.now().isoformat(),
+                "application_count": len(self.applications),
+                "diagnostics": [d.to_dict() for d in self.scan_diagnostics],
+            }
+            with open(log_path, "w", encoding="utf-8") as f:
+                json.dump(log_data, f, indent=2, ensure_ascii=False)
+        except OSError:
+            pass
 
     def _on_double_click(self, event):
         self._open_location()
