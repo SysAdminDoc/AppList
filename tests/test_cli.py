@@ -47,5 +47,32 @@ class CliTests(unittest.TestCase):
             self.assertIn("VERSION CHANGED (1)", report)
 
 
+    def test_compliance_reports_missing_apps(self):
+        from unittest import mock
+        from applist.models import Application
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ref_path = Path(tmp) / "required.txt"
+            ref_path.write_text("Alpha\nGamma\n# comment\n", encoding="utf-8")
+            report_path = Path(tmp) / "compliance.json"
+
+            scanner_mock = mock.MagicMock()
+            scanner_mock.scan_all.return_value = [Application(name="Alpha", version="1.0")]
+            scanner_mock.scan_diagnostics = []
+
+            with mock.patch("applist.cli.ApplicationScanner", return_value=scanner_mock):
+                with redirect_stdout(StringIO()):
+                    exit_code = run_cli([
+                        "--compliance", str(ref_path),
+                        "-o", str(report_path),
+                    ])
+
+            self.assertEqual(exit_code, 1)
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            self.assertFalse(report["compliant"])
+            self.assertIn("Alpha", report["present"])
+            self.assertIn("Gamma", report["missing"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -52,6 +52,11 @@ def build_cli_parser() -> argparse.ArgumentParser:
         metavar="BUNDLE_PATH",
         help="Validate a restore bundle directory or zip file.",
     )
+    group.add_argument(
+        "--compliance",
+        metavar="REFERENCE_FILE",
+        help="Check installed apps against a required-apps reference file (text or JSON).",
+    )
 
     parser.add_argument(
         "-o",
@@ -122,6 +127,68 @@ def run_cli(argv: List[str]) -> int:
         else:
             print("Bundle validation failed.", file=sys.stderr)
             return 1
+
+    # Handle compliance mode
+    if args.compliance:
+        ref_path = Path(args.compliance).expanduser()
+        if not ref_path.is_file():
+            print(f"Reference file not found: {ref_path}", file=sys.stderr)
+            return 1
+        try:
+            content = ref_path.read_text(encoding="utf-8")
+            if ref_path.suffix.lower() == ".json":
+                ref_data = json.loads(content)
+                required = ref_data.get("required", ref_data) if isinstance(ref_data, dict) else ref_data
+                required_names = [str(r).strip() for r in required if str(r).strip()]
+            else:
+                required_names = [line.strip() for line in content.splitlines() if line.strip() and not line.startswith("#")]
+        except (OSError, json.JSONDecodeError, TypeError) as e:
+            print(f"Error reading reference file: {e}", file=sys.stderr)
+            return 1
+
+        def status(message: str):
+            print(message, file=sys.stderr)
+
+        scanner = ApplicationScanner(status_callback=status)
+        apps = scanner.scan_all(skip_network=args.skip_network, skip_hashing=args.skip_hashing, skip_last_used=args.skip_last_used)
+        installed_norms = set()
+        for app in apps:
+            installed_norms.add(app.name.lower().strip())
+            if app.winget_id:
+                installed_norms.add(app.winget_id.lower().strip())
+
+        missing = []
+        present = []
+        for req in required_names:
+            if req.lower().strip() in installed_norms:
+                present.append(req)
+            else:
+                missing.append(req)
+
+        print(f"\nCompliance Report: {len(present)}/{len(required_names)} required apps found")
+        if missing:
+            print(f"\nMISSING ({len(missing)}):")
+            for name in sorted(missing):
+                print(f"  - {name}")
+        if present:
+            print(f"\nPRESENT ({len(present)}):")
+            for name in sorted(present):
+                print(f"  + {name}")
+
+        if args.output:
+            out = Path(args.output).expanduser()
+            out.parent.mkdir(parents=True, exist_ok=True)
+            report = {
+                "total_required": len(required_names),
+                "present": sorted(present),
+                "missing": sorted(missing),
+                "compliant": len(missing) == 0,
+            }
+            with open(str(out), "w", encoding="utf-8") as f:
+                json.dump(report, f, indent=2, ensure_ascii=False)
+            print(f"\nCompliance report written to {out}")
+
+        return 0 if not missing else 1
 
     # Handle diff mode
     if args.diff:
