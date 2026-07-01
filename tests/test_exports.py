@@ -371,6 +371,39 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(r.virustotal_url, "")
         self.assertEqual(apps[0].sha256_hash, "abc123")
 
+    def test_html_export_includes_bloatware_and_measured_size_columns(self):
+        apps = [
+            Application(name="Alpha", measured_size="150.0 MB", bloatware="OEM Bloatware"),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "dashboard.html"
+            write_html_export(apps, str(path))
+            html = path.read_text(encoding="utf-8")
+            self.assertIn("Measured Size", html)
+            self.assertIn("Bloatware", html)
+            self.assertIn("150.0 MB", html)
+            self.assertIn("OEM Bloatware", html)
+
+    def test_validate_bundle_closes_zip_on_missing_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            zip_path = Path(tmp) / "bad.zip"
+            with zipfile.ZipFile(zip_path, "w") as zf:
+                zf.writestr("random.txt", "data")
+            result = validate_restore_bundle(str(zip_path))
+            self.assertFalse(result["valid"])
+            self.assertTrue(any("manifest" in e.lower() for e in result["errors"]))
+
+    def test_powershell_export_quotes_special_chars(self):
+        apps = [
+            Application(name="pkg$(evil)", version="1.0", app_type="Chocolatey", source="Chocolatey"),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "install.ps1"
+            count = write_powershell_export(apps, str(path))
+            content = path.read_text(encoding="utf-8")
+            self.assertEqual(count, 1)
+            self.assertIn("'pkg$(evil)'", content)
+
 
 if __name__ == "__main__":
     unittest.main()

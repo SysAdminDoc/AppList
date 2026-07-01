@@ -458,6 +458,42 @@ class ScannerTests(unittest.TestCase):
 
             self.assertEqual(app.sha256_hash, expected_hash)
 
+    def test_bloatware_flags_publisher_and_name_patterns(self):
+        scanner = ApplicationScanner()
+        scanner.applications = [
+            Application(name="Alpha", publisher="McAfee, Inc.", app_type="Desktop"),
+            Application(name="Candy Crush Saga", publisher="King", app_type="Store App"),
+            Application(name="WildTangent Games", publisher="Unknown Publisher", app_type="Desktop"),
+            Application(name="Legit App", publisher="Legit Corp", app_type="Desktop"),
+        ]
+        scanner._apply_bloatware_flags()
+
+        self.assertEqual(scanner.applications[0].bloatware, "OEM Bloatware")
+        self.assertEqual(scanner.applications[1].bloatware, "OEM Bloatware")
+        self.assertEqual(scanner.applications[2].bloatware, "Suspected Bloatware")
+        self.assertEqual(scanner.applications[3].bloatware, "")
+
+    def test_normalize_name_strips_nonword_chars(self):
+        scanner = ApplicationScanner()
+        self.assertEqual(scanner._normalize_name("Alpha App"), "alphaapp")
+        self.assertEqual(scanner._normalize_name("Alpha-App"), "alphaapp")
+        self.assertEqual(scanner._normalize_name(""), "")
+
+    def test_format_size_handles_all_ranges(self):
+        scanner = ApplicationScanner()
+        self.assertEqual(scanner._format_size(0), "")
+        self.assertEqual(scanner._format_size(-5), "")
+        self.assertEqual(scanner._format_size(512), "512 KB")
+        self.assertEqual(scanner._format_size(2048), "2.0 MB")
+        self.assertEqual(scanner._format_size(2 * 1024 * 1024), "2.00 GB")
+
+    def test_filetime_rejects_future_and_ancient_dates(self):
+        scanner = ApplicationScanner()
+        self.assertEqual(scanner._filetime_to_string(0), "")
+        self.assertEqual(scanner._filetime_to_string(-1), "")
+        ancient = int((datetime(1800, 1, 1) - scanner_module.FILETIME_EPOCH).total_seconds() * 10_000_000)
+        self.assertEqual(scanner._filetime_to_string(ancient), "")
+
 
 if __name__ == "__main__":
     unittest.main()
