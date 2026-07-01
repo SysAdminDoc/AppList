@@ -225,7 +225,7 @@ class AppListWindow(ctk.CTk):
             "name", "publisher", "version", "install_date", "last_used_date",
             "type", "source", "upgrade_available", "pin_status", "winget_id",
             "sha256_hash", "virustotal", "consistency", "size", "architecture",
-            "install_location", "registry_key",
+            "install_location", "registry_key", "measured_size", "bloatware",
         )
         self._default_visible = {
             "name", "publisher", "version", "install_date", "type", "source",
@@ -670,7 +670,8 @@ class AppListWindow(ctk.CTk):
         columns = (
             "name", "publisher", "version", "install_date", "last_used_date",
             "type", "source", "upgrade_available", "pin_status", "winget_id",
-            "sha256_hash", "virustotal", "consistency", "size", "architecture", "install_location", "registry_key",
+            "sha256_hash", "virustotal", "consistency", "size", "architecture",
+            "install_location", "registry_key", "measured_size", "bloatware",
         )
 
         # Create treeview with scrollbar
@@ -717,6 +718,8 @@ class AppListWindow(ctk.CTk):
             "architecture": ("Arch", 80),
             "install_location": ("Location", 280),
             "registry_key": ("Registry Key", 320),
+            "measured_size": ("Measured Size", 110),
+            "bloatware": ("Bloatware", 140),
         }
 
         for col, (heading, width) in column_config.items():
@@ -1136,6 +1139,7 @@ class AppListWindow(ctk.CTk):
             app.consistency_status,
             app.estimated_size, app.architecture,
             app.install_location, app.uninstall_registry_key,
+            app.measured_size, app.bloatware,
         )
         return values, row_tags
 
@@ -1157,7 +1161,7 @@ class AppListWindow(ctk.CTk):
             group_counts[g] = group_counts.get(g, 0) + 1
 
         group_nodes: Dict[str, str] = {}
-        blank_values = ("", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "")
+        blank_values = ("",) * 19
 
         for offset, app in enumerate(page_apps):
             index = start + offset
@@ -1214,17 +1218,21 @@ class AppListWindow(ctk.CTk):
                 if search_text not in searchable:
                     continue
 
-            if filter_type == "Desktop" and app.app_type != "Desktop":
-                continue
-            elif filter_type == "Store" and app.app_type != "Store App":
-                continue
-            elif filter_type == "Unregistered" and app.app_type != "Desktop (Unregistered)":
-                continue
-            elif filter_type == "Chocolatey" and app.app_type != "Chocolatey":
-                continue
-            elif filter_type == "Scoop" and app.app_type != "Scoop":
-                continue
-            elif filter_type == "Python (pip)" and app.app_type != "Python Package":
+            type_map = {
+                "Desktop": "Desktop",
+                "Store": "Store App",
+                "Unregistered": "Desktop (Unregistered)",
+                "Chocolatey": "Chocolatey",
+                "Scoop": "Scoop",
+                "Python (pip)": "Python Package",
+                "Startup": "Startup",
+                "Portable": "Portable",
+                "Driver": "Driver",
+                "Windows Feature": "Windows Feature",
+                "WSL Distro": "WSL Distro",
+                "Winget": "Winget",
+            }
+            if filter_type in type_map and app.app_type != type_map[filter_type]:
                 continue
 
             source_value = (app.source or "").lower()
@@ -1287,9 +1295,10 @@ class AppListWindow(ctk.CTk):
             "winget_id": "winget_id", "upgrade_available": "upgrade_available",
             "pin_status": "pin_status", "sha256_hash": "sha256_hash",
             "virustotal": "virustotal_url", "consistency": "consistency_status",
+            "measured_size": "measured_size", "bloatware": "bloatware",
         }
         attr = attr_map.get(self.sort_column, "name")
-        self.filtered_apps.sort(key=lambda x: getattr(x, attr, "").lower(), reverse=self.sort_reverse)
+        self.filtered_apps.sort(key=lambda x: str(getattr(x, attr, "")).lower(), reverse=self.sort_reverse)
 
     def _ensure_exportable_rows(self) -> bool:
         if not self.applications:
@@ -1787,7 +1796,7 @@ class AppListWindow(ctk.CTk):
             "last_used_date": 145, "type": 132, "source": 132, "upgrade_available": 175,
             "pin_status": 120, "winget_id": 200, "sha256_hash": 240, "virustotal": 105,
             "consistency": 170, "size": 90, "architecture": 80, "install_location": 280,
-            "registry_key": 320,
+            "registry_key": 320, "measured_size": 110, "bloatware": 140,
         }
         for col in self._all_columns:
             if col in self._visible_columns:
@@ -1810,6 +1819,7 @@ class AppListWindow(ctk.CTk):
             "winget_id": "Winget ID", "sha256_hash": "SHA-256", "virustotal": "VirusTotal",
             "consistency": "Consistency", "size": "Size", "architecture": "Arch",
             "install_location": "Location", "registry_key": "Registry Key",
+            "measured_size": "Measured Size", "bloatware": "Bloatware",
         }
 
         check_vars = {}

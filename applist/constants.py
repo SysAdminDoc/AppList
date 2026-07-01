@@ -101,6 +101,12 @@ TYPE_FILTERS = [
     "Chocolatey",
     "Scoop",
     "Python (pip)",
+    "Startup",
+    "Portable",
+    "Driver",
+    "Windows Feature",
+    "WSL Distro",
+    "Winget",
 ]
 
 SOURCE_FILTERS = [

@@ -68,7 +68,8 @@ def build_cli_parser() -> argparse.ArgumentParser:
         default="all",
         help=(
             "Comma-separated sources to scan. Supported: all, desktop, registry, "
-            "store, program_files, chocolatey, scoop, pip, winget."
+            "store, program_files, chocolatey, scoop, pip, winget, startup, "
+            "portable, drivers, features, wsl."
         ),
     )
     parser.add_argument(

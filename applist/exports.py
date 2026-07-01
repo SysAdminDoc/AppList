@@ -112,6 +112,8 @@ def write_txt_export(apps: List[Application], filepath: str, diagnostics: Option
                 f.write(f"       Consistency:      {app.consistency_status}\n")
             if app.measured_size:
                 f.write(f"       Measured Size:    {app.measured_size}\n")
+            if app.bloatware:
+                f.write(f"       Bloatware:        {app.bloatware}\n")
             f.write(f"       Type:             {app.app_type}\n")
             f.write(f"       Source:           {app.source}\n")
             f.write("\n")
@@ -722,6 +724,8 @@ def write_html_export(apps: List[Application], filepath: str, diagnostics: Optio
             f"<td>{html_mod.escape(app.consistency_status)}</td>"
             f"<td>{html_mod.escape(app.architecture)}</td>"
             f"<td>{html_mod.escape(app.install_location)}</td>"
+            f"<td>{html_mod.escape(app.measured_size)}</td>"
+            f"<td>{html_mod.escape(app.bloatware)}</td>"
             f"</tr>"
         )
     table_body = "\n".join(rows_html)
@@ -836,6 +840,8 @@ a:hover {{ text-decoration: underline; }}
   <th onclick="sortTable(13)">Consistency</th>
   <th onclick="sortTable(14)">Arch</th>
   <th onclick="sortTable(15)">Location</th>
+  <th onclick="sortTable(16)">Measured Size</th>
+  <th onclick="sortTable(17)">Bloatware</th>
 </tr></thead>
 <tbody>
 {table_body}
