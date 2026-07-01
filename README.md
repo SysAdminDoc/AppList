@@ -1,6 +1,6 @@
 # AppList
 
-![Version](https://img.shields.io/badge/version-v1.7.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
+![Version](https://img.shields.io/badge/version-v1.8.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
 
 A Windows application inventory tool for scanning, cataloging, comparing, and exporting installed software before migrations, rebuilds, audits, and reinstall planning.
 
@@ -153,4 +153,4 @@ MIT License - Free for personal and commercial use.
 
 ---
 
-*AppList v1.7.0*
+*AppList v1.8.0*
