@@ -319,6 +319,40 @@ def write_choco_export(apps: List[Application], filepath: str) -> int:
     return len(choco_apps)
 
 
+def write_powershell_export(apps: List[Application], filepath: str) -> int:
+    """Write a PowerShell script with install one-liners for each app."""
+    lines = [
+        f"# {APP_NAME} v{APP_VERSION} - PowerShell Install Script",
+        f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"# Applications: {len(apps)}",
+        "",
+    ]
+    count = 0
+    for app in sorted(apps, key=lambda a: a.name.lower()):
+        if app.winget_id:
+            ver = f" --version {app.version}" if app.version else ""
+            lines.append(f"winget install --id {app.winget_id}{ver} --accept-package-agreements --accept-source-agreements")
+            count += 1
+        elif app.app_type == "Python Package":
+            ver = f"=={app.version}" if app.version else ""
+            lines.append(f"py -m pip install {app.name}{ver}")
+            count += 1
+        elif app.app_type == "Chocolatey":
+            ver = f" --version {app.version}" if app.version else ""
+            lines.append(f"choco install {app.name}{ver} -y")
+            count += 1
+        elif app.app_type == "Scoop":
+            lines.append(f"scoop install {app.name}")
+            count += 1
+        else:
+            lines.append(f"# Manual: {app.name} v{app.version} ({app.publisher})" if app.publisher else f"# Manual: {app.name} v{app.version}")
+    if count == 0:
+        raise ValueError("No applications have package-manager install commands.")
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    return count
+
+
 def _restore_command_lines(files: Dict[str, str]) -> List[str]:
     lines = [
         "# AppList restore commands",

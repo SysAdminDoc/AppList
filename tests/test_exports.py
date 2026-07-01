@@ -17,6 +17,7 @@ from applist.exports import (
     write_json_export,
     write_markdown_export,
     write_pip_requirements_export,
+    write_powershell_export,
     write_restore_bundle_export,
     write_txt_export,
 )
@@ -323,6 +324,25 @@ class ExportTests(unittest.TestCase):
         result = validate_restore_bundle("/nonexistent/bundle.zip")
         self.assertFalse(result["valid"])
         self.assertTrue(any("not found" in e for e in result["errors"]))
+
+    def test_powershell_export_emits_install_commands(self):
+        apps = [
+            Application(name="Alpha", version="1.0", winget_id="Acme.Alpha", source="HKLM64"),
+            Application(name="requests", version="2.32.3", app_type="Python Package", source="Python (pip)"),
+            Application(name="git", version="2.45.0", app_type="Chocolatey", source="Chocolatey"),
+            Application(name="jq", app_type="Scoop", source="Scoop"),
+            Application(name="Manual Tool", publisher="Acme", version="3.0", source="HKLM64"),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "install.ps1"
+            count = write_powershell_export(apps, str(path))
+            content = path.read_text(encoding="utf-8")
+            self.assertEqual(count, 4)
+            self.assertIn("winget install --id Acme.Alpha", content)
+            self.assertIn("pip install requests==2.32.3", content)
+            self.assertIn("choco install git", content)
+            self.assertIn("scoop install jq", content)
+            self.assertIn("# Manual: Manual Tool", content)
 
     def test_redact_applications_strips_sensitive_fields(self):
         from unittest import mock

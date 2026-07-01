@@ -20,6 +20,7 @@ from .exports import (
     write_html_export,
     write_pip_requirements_export,
     write_choco_export,
+    write_powershell_export,
     write_restore_bundle_export,
     validate_restore_bundle,
     diff_json_snapshots,
@@ -37,7 +38,7 @@ def build_cli_parser() -> argparse.ArgumentParser:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
         "--export",
-        choices=["txt", "csv", "md", "markdown", "json", "winget", "html", "pip", "choco", "bundle"],
+        choices=["txt", "csv", "md", "markdown", "json", "winget", "html", "pip", "choco", "ps1", "bundle"],
         help="Export format to write.",
     )
     group.add_argument(
@@ -210,6 +211,7 @@ def run_cli(argv: List[str]) -> int:
         "html": write_html_export,
         "pip": write_pip_requirements_export,
         "choco": write_choco_export,
+        "ps1": write_powershell_export,
         "bundle": write_restore_bundle_export,
     }
 

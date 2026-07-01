@@ -33,6 +33,7 @@ from .exports import (
     write_html_export,
     write_pip_requirements_export,
     write_choco_export,
+    write_powershell_export,
     write_restore_bundle_export,
 )
 
@@ -610,6 +611,9 @@ class AppListWindow(ctk.CTk):
         self.export_choco_btn = SecondaryButton(export_frame, text="Choco", width=72, command=self._export_choco)
         self.export_choco_btn.pack(side="left", padx=(0, 6))
 
+        self.export_ps1_btn = SecondaryButton(export_frame, text="PS1", width=54, command=self._export_ps1)
+        self.export_ps1_btn.pack(side="left", padx=(0, 6))
+
         self.export_bundle_btn = SecondaryButton(export_frame, text="Bundle", width=84, command=self._export_bundle)
         self.export_bundle_btn.pack(side="left", padx=(0, 6))
 
@@ -801,7 +805,8 @@ class AppListWindow(ctk.CTk):
         for button in (
             self.export_txt_btn, self.export_csv_btn, self.export_md_btn,
             self.export_json_btn, self.export_winget_btn, self.export_html_btn,
-            self.export_pip_btn, self.export_choco_btn, self.export_bundle_btn,
+            self.export_pip_btn, self.export_choco_btn, self.export_ps1_btn,
+            self.export_bundle_btn,
         ):
             button.configure(state=state)
 
@@ -1418,6 +1423,27 @@ class AppListWindow(ctk.CTk):
                 f"To restore, run:\n  choco install packages.config")
         except (OSError, ValueError) as e:
             self._update_status("Chocolatey export failed.")
+            messagebox.showerror("Export Error", f"Failed to export:\n{e}")
+
+    def _export_ps1(self):
+        if not self._ensure_exportable_rows():
+            return
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".ps1",
+            filetypes=[("PowerShell Scripts", "*.ps1"), ("All Files", "*.*")],
+            initialfile=f"AppList_Install_{timestamp}.ps1",
+            title="Export PowerShell Install Script",
+        )
+        if not filepath:
+            return
+        try:
+            count = write_powershell_export(self.filtered_apps, filepath)
+            self._update_status(f"Exported {count} install commands to PS1.")
+            messagebox.showinfo("Export Complete",
+                f"Exported {count} install commands to:\n{filepath}")
+        except (OSError, ValueError) as e:
+            self._update_status("PowerShell export failed.")
             messagebox.showerror("Export Error", f"Failed to export:\n{e}")
 
     # ══════════════════════════════════════════════════════════════════════════
