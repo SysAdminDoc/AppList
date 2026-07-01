@@ -524,6 +524,96 @@ def write_diff_report(diff: Dict[str, Any], filepath: Optional[str] = None) -> s
     return report
 
 
+def validate_restore_bundle(bundle_path: str) -> Dict[str, Any]:
+    """Validate a restore bundle directory or zip and return a structured report.
+
+    Returns a dict with 'valid' (bool), 'errors' (list), and 'warnings' (list).
+    """
+    target = Path(bundle_path).expanduser()
+    errors: List[str] = []
+    warnings: List[str] = []
+
+    if target.suffix.lower() == ".zip":
+        if not target.is_file():
+            return {"valid": False, "errors": [f"Bundle zip not found: {target}"], "warnings": []}
+        try:
+            zf = zipfile.ZipFile(target, "r")
+        except zipfile.BadZipFile:
+            return {"valid": False, "errors": [f"Not a valid zip file: {target}"], "warnings": []}
+        names = set(zf.namelist())
+        read = lambda name: zf.read(name).decode("utf-8") if name in names else None
+    else:
+        if not target.is_dir():
+            return {"valid": False, "errors": [f"Bundle directory not found: {target}"], "warnings": []}
+        names = {p.name for p in target.iterdir() if p.is_file()}
+        read = lambda name: (target / name).read_text(encoding="utf-8") if name in names else None
+
+    if "manifest.json" not in names:
+        errors.append("Missing manifest.json")
+        return {"valid": False, "errors": errors, "warnings": warnings}
+
+    try:
+        manifest = json.loads(read("manifest.json"))
+    except (json.JSONDecodeError, TypeError) as e:
+        errors.append(f"Malformed manifest.json: {e}")
+        return {"valid": False, "errors": errors, "warnings": warnings}
+
+    declared_files = manifest.get("files", {})
+    for key, filename in declared_files.items():
+        if filename not in names:
+            errors.append(f"Manifest declares '{key}' as '{filename}' but file is missing")
+
+    if "applist.json" in names:
+        try:
+            applist_data = json.loads(read("applist.json"))
+            if not isinstance(applist_data.get("applications"), list):
+                errors.append("applist.json missing 'applications' array")
+        except (json.JSONDecodeError, TypeError) as e:
+            errors.append(f"Malformed applist.json: {e}")
+    else:
+        errors.append("Missing applist.json (core inventory)")
+
+    if "winget-packages.json" in names:
+        try:
+            winget_data = json.loads(read("winget-packages.json"))
+            if "$schema" not in winget_data:
+                warnings.append("winget-packages.json missing $schema field")
+            sources = winget_data.get("Sources", [])
+            if not sources or not any(s.get("Packages") for s in sources):
+                warnings.append("winget-packages.json has no packages")
+        except (json.JSONDecodeError, TypeError) as e:
+            errors.append(f"Malformed winget-packages.json: {e}")
+
+    if "requirements.txt" in names:
+        pip_content = read("requirements.txt")
+        if pip_content is not None:
+            pip_lines = [l.strip() for l in pip_content.splitlines() if l.strip() and not l.startswith("#")]
+            if not pip_lines:
+                warnings.append("requirements.txt is empty")
+
+    if "packages.config" in names:
+        choco_content = read("packages.config")
+        if choco_content is not None and "<package " not in choco_content:
+            warnings.append("packages.config contains no <package> entries")
+
+    if "restore-commands.ps1" not in names:
+        warnings.append("Missing restore-commands.ps1")
+
+    skipped = manifest.get("skipped", {})
+    if skipped:
+        for key, reason in skipped.items():
+            warnings.append(f"Bundle skipped '{key}': {reason}")
+
+    if target.suffix.lower() == ".zip":
+        zf.close()
+
+    return {
+        "valid": len(errors) == 0,
+        "errors": errors,
+        "warnings": warnings,
+    }
+
+
 def write_html_export(apps: List[Application], filepath: str, diagnostics: Optional[List[ScanDiagnostic]] = None):
     """Write a self-contained HTML dashboard with sortable, searchable table."""
     import html as html_mod

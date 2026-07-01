@@ -20,6 +20,7 @@ from .exports import (
     write_pip_requirements_export,
     write_choco_export,
     write_restore_bundle_export,
+    validate_restore_bundle,
     diff_json_snapshots,
     write_diff_report,
 )
@@ -43,6 +44,11 @@ def build_cli_parser() -> argparse.ArgumentParser:
         nargs=2,
         metavar=("OLD_JSON", "NEW_JSON"),
         help="Diff two AppList JSON snapshots and report Added/Removed/VersionChanged.",
+    )
+    group.add_argument(
+        "--validate-bundle",
+        metavar="BUNDLE_PATH",
+        help="Validate a restore bundle directory or zip file.",
     )
 
     parser.add_argument(
@@ -71,6 +77,24 @@ def run_cli(argv: List[str]) -> int:
     """Run AppList in headless CLI mode."""
     parser = build_cli_parser()
     args = parser.parse_args(argv)
+
+    # Handle validate mode
+    if args.validate_bundle:
+        result = validate_restore_bundle(args.validate_bundle)
+        if result["errors"]:
+            print("Errors:", file=sys.stderr)
+            for error in result["errors"]:
+                print(f"  - {error}", file=sys.stderr)
+        if result["warnings"]:
+            print("Warnings:", file=sys.stderr)
+            for warning in result["warnings"]:
+                print(f"  - {warning}", file=sys.stderr)
+        if result["valid"]:
+            print("Bundle is valid.")
+            return 0
+        else:
+            print("Bundle validation failed.", file=sys.stderr)
+            return 1
 
     # Handle diff mode
     if args.diff:

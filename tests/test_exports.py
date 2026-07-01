@@ -9,6 +9,7 @@ from applist import JSON_SCHEMA_VERSION
 from applist.exports import (
     diff_json_snapshots,
     get_markdown_groups,
+    validate_restore_bundle,
     write_choco_export,
     write_csv_export,
     write_html_export,
@@ -281,6 +282,46 @@ class ExportTests(unittest.TestCase):
             self.assertEqual(diff["summary"]["version_changed"], 0)
             self.assertEqual(diff["summary"]["added"], 0)
             self.assertEqual(diff["summary"]["removed"], 0)
+
+    def test_validate_bundle_passes_on_valid_zip(self):
+        apps = [
+            Application(name="Alpha", winget_id="Acme.Alpha", source="HKLM64"),
+            Application(name="requests", version="2.32.3", app_type="Python Package", source="Python (pip)"),
+            Application(name="git", version="2.45.0", app_type="Chocolatey", source="Chocolatey"),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            zip_path = Path(tmp) / "bundle.zip"
+            write_restore_bundle_export(apps, str(zip_path))
+            result = validate_restore_bundle(str(zip_path))
+            self.assertTrue(result["valid"])
+            self.assertEqual(result["errors"], [])
+
+    def test_validate_bundle_catches_missing_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "bad_bundle"
+            folder.mkdir()
+            (folder / "applist.json").write_text("{}", encoding="utf-8")
+            result = validate_restore_bundle(str(folder))
+            self.assertFalse(result["valid"])
+            self.assertTrue(any("manifest.json" in e for e in result["errors"]))
+
+    def test_validate_bundle_catches_missing_declared_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "partial_bundle"
+            folder.mkdir()
+            manifest = {"files": {"winget": "winget-packages.json"}, "skipped": {}}
+            (folder / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            (folder / "applist.json").write_text(
+                json.dumps({"applications": []}), encoding="utf-8"
+            )
+            result = validate_restore_bundle(str(folder))
+            self.assertFalse(result["valid"])
+            self.assertTrue(any("winget-packages.json" in e for e in result["errors"]))
+
+    def test_validate_bundle_reports_nonexistent_path(self):
+        result = validate_restore_bundle("/nonexistent/bundle.zip")
+        self.assertFalse(result["valid"])
+        self.assertTrue(any("not found" in e for e in result["errors"]))
 
 
 if __name__ == "__main__":
