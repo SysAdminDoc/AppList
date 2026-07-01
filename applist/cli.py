@@ -4,6 +4,7 @@ import argparse
 import csv
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
@@ -307,7 +308,7 @@ def run_cli(argv: List[str]) -> int:
         diag_path = Path(args.emit_diagnostics).expanduser()
         diag_path.parent.mkdir(parents=True, exist_ok=True)
         diag_data = {
-            "generated": __import__("datetime").datetime.now().isoformat(),
+            "generated": datetime.now().isoformat(),
             "diagnostics": [d.to_dict() for d in diagnostics],
         }
         with open(str(diag_path), "w", encoding="utf-8") as f:

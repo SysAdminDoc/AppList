@@ -947,8 +947,7 @@ class AppListWindow(ctk.CTk):
         try:
             apps = self.scanner.scan_all()
             self.after(0, lambda: self._on_scan_complete(apps))
-        except (OSError, PermissionError, subprocess.SubprocessError,
-                json.JSONDecodeError, ValueError) as e:
+        except Exception as e:
             self.after(0, lambda: self._on_scan_error(str(e)))
 
     def _cancel_scan(self):
@@ -1266,7 +1265,9 @@ class AppListWindow(ctk.CTk):
         self._populate_treeview()
 
     def _on_search_changed(self, *args):
-        self._apply_filters()
+        if hasattr(self, "_search_debounce_id"):
+            self.after_cancel(self._search_debounce_id)
+        self._search_debounce_id = self.after(150, self._apply_filters)
 
     def _on_filter_changed(self, *args):
         self._apply_filters()
