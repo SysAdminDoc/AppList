@@ -563,6 +563,55 @@ class ApplicationScanner:
             self._log_warning(f"{failed} Prefetch files could not be parsed.")
         return last_used
 
+    def _build_appcompat_cache_map(self) -> Dict[str, str]:
+        """Parse AppCompatCache (ShimCache) for executable timestamps."""
+        last_used: Dict[str, str] = {}
+        try:
+            with winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE,
+                r"SYSTEM\CurrentControlSet\Control\Session Manager\AppCompatCache",
+                0, winreg.KEY_READ,
+            ) as key:
+                data, _ = winreg.QueryValueEx(key, "AppCompatCache")
+                if not data or len(data) < 48:
+                    return last_used
+                # Win10/11 format: 4-byte signature, 4-byte unknown, then entries
+                # Each entry: path length (4), path (UTF-16-LE), timestamp (8), data size (4), data
+                offset = 48
+                while offset < len(data) - 12:
+                    try:
+                        path_len = struct.unpack_from("<I", data, offset)[0]
+                        offset += 4
+                        if path_len <= 0 or path_len > 4096 or offset + path_len > len(data):
+                            break
+                        raw_path = data[offset:offset + path_len]
+                        try:
+                            path_str = raw_path.decode("utf-16-le").rstrip("\x00")
+                        except (UnicodeDecodeError, ValueError):
+                            break
+                        offset += path_len
+                        if offset + 8 > len(data):
+                            break
+                        ft = struct.unpack_from("<Q", data, offset)[0]
+                        offset += 8
+                        if offset + 4 > len(data):
+                            break
+                        data_size = struct.unpack_from("<I", data, offset)[0]
+                        offset += 4 + data_size
+                        if ft > 0 and path_str:
+                            try:
+                                ts = datetime(1601, 1, 1) + timedelta(microseconds=ft // 10)
+                                timestamp = ts.strftime("%Y-%m-%d %H:%M:%S")
+                                exe_name = os.path.basename(path_str)
+                                self._record_last_used(last_used, self._candidate_keys(exe_name), timestamp)
+                            except (ValueError, OverflowError, OSError):
+                                pass
+                    except struct.error:
+                        break
+        except (OSError, PermissionError):
+            pass
+        return last_used
+
     def _application_last_used_candidates(self, app: Application) -> set:
         candidates = set()
         for value in (app.name, app.install_location, app.winget_id):
@@ -586,9 +635,11 @@ class ApplicationScanner:
         self._update_progress(84)
 
         userassist_map = self._build_userassist_last_used_map()
-        self._update_progress(88)
+        self._update_progress(86)
         prefetch_map = self._build_prefetch_last_used_map()
-        if not userassist_map and not prefetch_map:
+        self._update_progress(88)
+        appcompat_map = self._build_appcompat_cache_map()
+        if not userassist_map and not prefetch_map and not appcompat_map:
             return
 
         for app in self.applications:
@@ -596,6 +647,7 @@ class ApplicationScanner:
             for candidate in self._application_last_used_candidates(app):
                 last_used = self._newer_timestamp(last_used, userassist_map.get(candidate, ""))
                 last_used = self._newer_timestamp(last_used, prefetch_map.get(candidate, ""))
+                last_used = self._newer_timestamp(last_used, appcompat_map.get(candidate, ""))
             app.last_used_date = last_used
 
     def _hash_cache_path(self) -> Path:
