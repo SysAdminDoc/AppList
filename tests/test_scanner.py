@@ -282,6 +282,32 @@ class ScannerTests(unittest.TestCase):
         self.assertEqual(apps[0].name, "requests")
         self.assertEqual(apps[0].app_type, "Python Package")
 
+    def test_pip_scan_skips_in_frozen_mode_without_interpreter(self):
+        scanner = ApplicationScanner()
+        with mock.patch.object(scanner_module.sys, "frozen", True, create=True), \
+                mock.patch.object(scanner_module.shutil, "which", return_value=None), \
+                mock.patch.object(scanner, "_log_warning") as warn_mock:
+            apps = scanner.scan_pip()
+
+        self.assertEqual(apps, [])
+        warn_mock.assert_called_once()
+        self.assertIn("frozen", warn_mock.call_args[0][0])
+
+    def test_pip_scan_uses_external_interpreter_when_frozen(self):
+        scanner = ApplicationScanner()
+        completed = mock.Mock(
+            returncode=0,
+            stdout=json.dumps([{"name": "numpy", "version": "1.26.0"}]),
+        )
+        with mock.patch.object(scanner_module.sys, "frozen", True, create=True), \
+                mock.patch.object(scanner_module.shutil, "which", return_value=r"C:\Python312\python.exe"), \
+                mock.patch.object(scanner_module.subprocess, "run", return_value=completed) as run_mock:
+            apps = scanner.scan_pip()
+
+        self.assertEqual(len(apps), 1)
+        self.assertEqual(apps[0].name, "numpy")
+        self.assertEqual(run_mock.call_args[0][0][0], r"C:\Python312\python.exe")
+
     def test_userassist_timestamp_parser_reads_filetime_offset(self):
         scanner = ApplicationScanner()
         payload = bytearray(72)

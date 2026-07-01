@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import struct
 import subprocess
 import sys
@@ -904,15 +905,35 @@ class ApplicationScanner:
 
         return apps
 
+    def _find_pip_interpreter(self) -> Optional[str]:
+        """Find a Python interpreter capable of running pip.
+
+        In frozen (PyInstaller) builds, sys.executable points to the packed .exe
+        and cannot run ``-m pip``.  Fall back to ``py`` (Windows launcher) or
+        ``python`` on PATH.
+        """
+        if not getattr(sys, "frozen", False):
+            return sys.executable
+        for candidate in ("py", "python3", "python"):
+            path = shutil.which(candidate)
+            if path:
+                return path
+        return None
+
     def scan_pip(self) -> List[Application]:
         """Scan pip-installed Python packages."""
         apps: List[Application] = []
         self._update_status("Scanning Python (pip) packages...")
         self._update_progress(64)
 
+        interpreter = self._find_pip_interpreter()
+        if interpreter is None:
+            self._log_warning("pip scan skipped: no Python interpreter found (frozen build)")
+            return apps
+
         try:
             result = subprocess.run(
-                [sys.executable, "-m", "pip", "list", "--format=json"],
+                [interpreter, "-m", "pip", "list", "--format=json"],
                 capture_output=True, text=True, timeout=30,
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )

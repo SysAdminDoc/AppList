@@ -331,6 +331,8 @@ def write_restore_bundle_export(
     apps: List[Application],
     output_path: str,
     diagnostics: Optional[List[ScanDiagnostic]] = None,
+    *,
+    overwrite: bool = False,
 ) -> Dict[str, Any]:
     """Write a migration-ready restore bundle folder or zip and return its manifest."""
     target = Path(output_path).expanduser()
@@ -339,10 +341,14 @@ def write_restore_bundle_export(
     if not bundle_name:
         bundle_name = f"AppList_Restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-    temp_root_obj = tempfile.TemporaryDirectory() if as_zip else None
-    root = Path(temp_root_obj.name) / bundle_name if temp_root_obj else target
-    if root.exists():
-        shutil.rmtree(root)
+    if not as_zip and target.exists() and any(target.iterdir()) and not overwrite:
+        raise ValueError(
+            f"Destination folder already contains files: {target}\n"
+            "Use a new path or enable overwrite to replace it."
+        )
+
+    staging_dir = tempfile.TemporaryDirectory()
+    root = Path(staging_dir.name) / bundle_name
     root.mkdir(parents=True, exist_ok=True)
 
     files: Dict[str, str] = {}
@@ -385,16 +391,26 @@ def write_restore_bundle_export(
     files["manifest"] = "manifest.json"
 
     if as_zip:
-        if target.exists():
-            target.unlink()
         target.parent.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-            for path in root.rglob("*"):
-                if path.is_file():
-                    zf.write(path, path.relative_to(root))
-        if temp_root_obj:
-            temp_root_obj.cleanup()
+        zip_tmp = target.with_suffix(".zip.tmp")
+        try:
+            with zipfile.ZipFile(zip_tmp, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                for path in root.rglob("*"):
+                    if path.is_file():
+                        zf.write(path, path.relative_to(root))
+            if target.exists():
+                target.unlink()
+            zip_tmp.rename(target)
+        except BaseException:
+            zip_tmp.unlink(missing_ok=True)
+            raise
+    else:
+        if target.exists():
+            shutil.rmtree(target)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(str(root), str(target))
 
+    staging_dir.cleanup()
     return manifest
 
 

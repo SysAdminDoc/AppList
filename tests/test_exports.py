@@ -157,6 +157,39 @@ class ExportTests(unittest.TestCase):
                 unmatched = zf.read("unmatched-skipped.md").decode("utf-8")
                 self.assertIn("Manual Tool", unmatched)
 
+    def test_restore_bundle_refuses_non_empty_folder(self):
+        apps = [Application(name="Alpha", source="HKLM64")]
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "existing_bundle"
+            folder.mkdir()
+            (folder / "user_data.txt").write_text("important", encoding="utf-8")
+
+            with self.assertRaises(ValueError) as ctx:
+                write_restore_bundle_export(apps, str(folder))
+            self.assertIn("already contains files", str(ctx.exception))
+
+    def test_restore_bundle_overwrites_folder_when_flag_set(self):
+        apps = [Application(name="Alpha", source="HKLM64")]
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "existing_bundle"
+            folder.mkdir()
+            (folder / "old_file.txt").write_text("stale", encoding="utf-8")
+
+            manifest = write_restore_bundle_export(apps, str(folder), overwrite=True)
+            self.assertEqual(manifest["application_count"], 1)
+            self.assertFalse((folder / "old_file.txt").exists())
+            self.assertTrue((folder / "applist.json").exists())
+
+    def test_restore_bundle_zip_uses_atomic_write(self):
+        apps = [Application(name="Alpha", source="HKLM64")]
+        with tempfile.TemporaryDirectory() as tmp:
+            zip_path = Path(tmp) / "bundle.zip"
+            write_restore_bundle_export(apps, str(zip_path))
+            self.assertTrue(zip_path.exists())
+            self.assertFalse(zip_path.with_suffix(".zip.tmp").exists())
+            with zipfile.ZipFile(zip_path) as zf:
+                self.assertIn("applist.json", zf.namelist())
+
     def test_markdown_groups_preserve_unknown_types(self):
         groups = get_markdown_groups(
             [

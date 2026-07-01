@@ -58,6 +58,11 @@ def build_cli_parser() -> argparse.ArgumentParser:
             "store, program_files, chocolatey, scoop, pip, winget."
         ),
     )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Allow overwriting an existing non-empty bundle folder.",
+    )
     parser.add_argument("--version", action="version", version=f"{APP_NAME} v{APP_VERSION}")
     return parser
 
@@ -151,7 +156,9 @@ def run_cli(argv: List[str]) -> int:
     }
 
     try:
-        if export_format in {"txt", "markdown", "json", "html", "bundle"}:
+        if export_format == "bundle":
+            result = writers["bundle"](apps, str(output_path), diagnostics, overwrite=args.overwrite)
+        elif export_format in {"txt", "markdown", "json", "html"}:
             result = writers[export_format](apps, str(output_path), diagnostics)
         else:
             result = writers[export_format](apps, str(output_path))
