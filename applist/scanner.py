@@ -303,7 +303,7 @@ class ApplicationScanner:
                             self.seen_apps.add(norm)
                             apps.append(Application(
                                 name=name,
-                                publisher=current.get("provider", ""),
+                                publisher=current.get("provider", current.get("class_name", "")),
                                 version=current.get("version", ""),
                                 install_date=current.get("date", ""),
                                 source="Driver",
@@ -317,8 +317,10 @@ class ApplicationScanner:
                     value = value.strip()
                     if "original" in key and "name" in key:
                         current["driver_name"] = value
-                    elif "provider" in key or "class name" in key:
+                    elif "provider" in key:
                         current["provider"] = value
+                    elif "class name" in key:
+                        current["class_name"] = value
                     elif "version" in key and "driver" in key:
                         current["version"] = value
                     elif "date" in key and "driver" in key:
@@ -330,7 +332,7 @@ class ApplicationScanner:
                     self.seen_apps.add(norm)
                     apps.append(Application(
                         name=name,
-                        publisher=current.get("provider", ""),
+                        publisher=current.get("provider", current.get("class_name", "")),
                         version=current.get("version", ""),
                         install_date=current.get("date", ""),
                         source="Driver",
@@ -637,13 +639,10 @@ class ApplicationScanner:
                         data_size = struct.unpack_from("<I", data, offset)[0]
                         offset += 4 + data_size
                         if ft > 0 and path_str:
-                            try:
-                                ts = datetime(1601, 1, 1) + timedelta(microseconds=ft // 10)
-                                timestamp = ts.strftime("%Y-%m-%d %H:%M:%S")
+                            timestamp = self._filetime_to_string(ft)
+                            if timestamp:
                                 exe_name = os.path.basename(path_str)
                                 self._record_last_used(last_used, self._candidate_keys(exe_name), timestamp)
-                            except (ValueError, OverflowError, OSError):
-                                pass
                     except struct.error:
                         break
         except (OSError, PermissionError):

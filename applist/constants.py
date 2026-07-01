@@ -16,6 +16,7 @@ COLORS = {
     "bg_elevated": "#313244",      # Surface0
     "bg_hover": "#45475a",         # Surface1
     "bg_pressed": "#11111b",       # Crust
+    "bg_input": "#181825",         # Mantle (input fields)
     "accent_primary": "#89b4fa",   # Blue
     "accent_secondary": "#74c7ec", # Sapphire
     "accent_glow": "#7287fd",      # Lavender

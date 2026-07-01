@@ -1157,7 +1157,7 @@ class AppListWindow(ctk.CTk):
             group_counts[g] = group_counts.get(g, 0) + 1
 
         group_nodes: Dict[str, str] = {}
-        blank_values = ("", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "")
+        blank_values = ("", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "")
 
         for offset, app in enumerate(page_apps):
             index = start + offset
@@ -1704,13 +1704,13 @@ class AppListWindow(ctk.CTk):
                 "No baseline snapshot found.\n\n"
                 "Click Baseline to save the current state first.")
             return
+        import tempfile
+        tmp_path = None
         try:
-            import tempfile
             with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as tmp:
                 tmp_path = tmp.name
             write_json_export(self.filtered_apps, tmp_path, self.scan_diagnostics)
             diff = diff_json_snapshots(self._baseline_path, tmp_path)
-            os.unlink(tmp_path)
             report = write_diff_report(diff)
             s = diff["summary"]
             self._update_status(
@@ -1719,6 +1719,12 @@ class AppListWindow(ctk.CTk):
             messagebox.showinfo("Before vs After", report[:2000])
         except (OSError, json.JSONDecodeError) as e:
             messagebox.showerror("Compare Error", f"Failed to compare:\n{e}")
+        finally:
+            if tmp_path:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
 
     def _show_diagnostics(self):
         if not self.scan_diagnostics:

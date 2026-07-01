@@ -339,9 +339,9 @@ class ExportTests(unittest.TestCase):
             content = path.read_text(encoding="utf-8")
             self.assertEqual(count, 4)
             self.assertIn("winget install --id Acme.Alpha", content)
-            self.assertIn("pip install requests==2.32.3", content)
-            self.assertIn("choco install git", content)
-            self.assertIn("scoop install jq", content)
+            self.assertIn("pip install 'requests==2.32.3'", content)
+            self.assertIn("choco install 'git'", content)
+            self.assertIn("scoop install 'jq'", content)
             self.assertIn("# Manual: Manual Tool", content)
 
     def test_redact_applications_strips_sensitive_fields(self):

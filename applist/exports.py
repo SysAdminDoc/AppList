@@ -56,10 +56,6 @@ def redact_applications(apps: List[Application]) -> List[Application]:
     return redacted
 
 
-def _redact_hostname(hostname: str) -> str:
-    return "<REDACTED>" if hostname and hostname != "Unknown" else hostname
-
-
 def _write_text_diagnostics(f, diagnostics: Optional[List[ScanDiagnostic]]):
     if not _has_reportable_diagnostics(diagnostics):
         return
@@ -339,14 +335,14 @@ def write_powershell_export(apps: List[Application], filepath: str) -> int:
             count += 1
         elif app.app_type == "Python Package":
             ver = f"=={app.version}" if app.version else ""
-            lines.append(f"py -m pip install {app.name}{ver}")
+            lines.append(f"py -m pip install '{app.name}{ver}'")
             count += 1
         elif app.app_type == "Chocolatey":
             ver = f" --version {app.version}" if app.version else ""
-            lines.append(f"choco install {app.name}{ver} -y")
+            lines.append(f"choco install '{app.name}'{ver} -y")
             count += 1
         elif app.app_type == "Scoop":
-            lines.append(f"scoop install {app.name}")
+            lines.append(f"scoop install '{app.name}'")
             count += 1
         else:
             lines.append(f"# Manual: {app.name} v{app.version} ({app.publisher})" if app.publisher else f"# Manual: {app.name} v{app.version}")
@@ -613,78 +609,83 @@ def validate_restore_bundle(bundle_path: str) -> Dict[str, Any]:
             zf = zipfile.ZipFile(target, "r")
         except zipfile.BadZipFile:
             return {"valid": False, "errors": [f"Not a valid zip file: {target}"], "warnings": []}
-        names = set(zf.namelist())
-        read = lambda name: zf.read(name).decode("utf-8") if name in names else None
     else:
+        zf = None
         if not target.is_dir():
             return {"valid": False, "errors": [f"Bundle directory not found: {target}"], "warnings": []}
-        names = {p.name for p in target.iterdir() if p.is_file()}
-        read = lambda name: (target / name).read_text(encoding="utf-8") if name in names else None
-
-    if "manifest.json" not in names:
-        errors.append("Missing manifest.json")
-        return {"valid": False, "errors": errors, "warnings": warnings}
 
     try:
-        manifest = json.loads(read("manifest.json"))
-    except (json.JSONDecodeError, TypeError) as e:
-        errors.append(f"Malformed manifest.json: {e}")
-        return {"valid": False, "errors": errors, "warnings": warnings}
+        if zf is not None:
+            names = set(zf.namelist())
+            read = lambda name: zf.read(name).decode("utf-8") if name in names else None
+        else:
+            names = {p.name for p in target.iterdir() if p.is_file()}
+            read = lambda name: (target / name).read_text(encoding="utf-8") if name in names else None
 
-    declared_files = manifest.get("files", {})
-    for key, filename in declared_files.items():
-        if filename not in names:
-            errors.append(f"Manifest declares '{key}' as '{filename}' but file is missing")
+        if "manifest.json" not in names:
+            errors.append("Missing manifest.json")
+            return {"valid": False, "errors": errors, "warnings": warnings}
 
-    if "applist.json" in names:
         try:
-            applist_data = json.loads(read("applist.json"))
-            if not isinstance(applist_data.get("applications"), list):
-                errors.append("applist.json missing 'applications' array")
+            manifest = json.loads(read("manifest.json"))
         except (json.JSONDecodeError, TypeError) as e:
-            errors.append(f"Malformed applist.json: {e}")
-    else:
-        errors.append("Missing applist.json (core inventory)")
+            errors.append(f"Malformed manifest.json: {e}")
+            return {"valid": False, "errors": errors, "warnings": warnings}
 
-    if "winget-packages.json" in names:
-        try:
-            winget_data = json.loads(read("winget-packages.json"))
-            if "$schema" not in winget_data:
-                warnings.append("winget-packages.json missing $schema field")
-            sources = winget_data.get("Sources", [])
-            if not sources or not any(s.get("Packages") for s in sources):
-                warnings.append("winget-packages.json has no packages")
-        except (json.JSONDecodeError, TypeError) as e:
-            errors.append(f"Malformed winget-packages.json: {e}")
+        declared_files = manifest.get("files", {})
+        for key, filename in declared_files.items():
+            if filename not in names:
+                errors.append(f"Manifest declares '{key}' as '{filename}' but file is missing")
 
-    if "requirements.txt" in names:
-        pip_content = read("requirements.txt")
-        if pip_content is not None:
-            pip_lines = [l.strip() for l in pip_content.splitlines() if l.strip() and not l.startswith("#")]
-            if not pip_lines:
-                warnings.append("requirements.txt is empty")
+        if "applist.json" in names:
+            try:
+                applist_data = json.loads(read("applist.json"))
+                if not isinstance(applist_data.get("applications"), list):
+                    errors.append("applist.json missing 'applications' array")
+            except (json.JSONDecodeError, TypeError) as e:
+                errors.append(f"Malformed applist.json: {e}")
+        else:
+            errors.append("Missing applist.json (core inventory)")
 
-    if "packages.config" in names:
-        choco_content = read("packages.config")
-        if choco_content is not None and "<package " not in choco_content:
-            warnings.append("packages.config contains no <package> entries")
+        if "winget-packages.json" in names:
+            try:
+                winget_data = json.loads(read("winget-packages.json"))
+                if "$schema" not in winget_data:
+                    warnings.append("winget-packages.json missing $schema field")
+                sources = winget_data.get("Sources", [])
+                if not sources or not any(s.get("Packages") for s in sources):
+                    warnings.append("winget-packages.json has no packages")
+            except (json.JSONDecodeError, TypeError) as e:
+                errors.append(f"Malformed winget-packages.json: {e}")
 
-    if "restore-commands.ps1" not in names:
-        warnings.append("Missing restore-commands.ps1")
+        if "requirements.txt" in names:
+            pip_content = read("requirements.txt")
+            if pip_content is not None:
+                pip_lines = [l.strip() for l in pip_content.splitlines() if l.strip() and not l.startswith("#")]
+                if not pip_lines:
+                    warnings.append("requirements.txt is empty")
 
-    skipped = manifest.get("skipped", {})
-    if skipped:
-        for key, reason in skipped.items():
-            warnings.append(f"Bundle skipped '{key}': {reason}")
+        if "packages.config" in names:
+            choco_content = read("packages.config")
+            if choco_content is not None and "<package " not in choco_content:
+                warnings.append("packages.config contains no <package> entries")
 
-    if target.suffix.lower() == ".zip":
-        zf.close()
+        if "restore-commands.ps1" not in names:
+            warnings.append("Missing restore-commands.ps1")
 
-    return {
-        "valid": len(errors) == 0,
-        "errors": errors,
-        "warnings": warnings,
-    }
+        skipped = manifest.get("skipped", {})
+        if skipped:
+            for key, reason in skipped.items():
+                warnings.append(f"Bundle skipped '{key}': {reason}")
+
+        return {
+            "valid": len(errors) == 0,
+            "errors": errors,
+            "warnings": warnings,
+        }
+    finally:
+        if zf is not None:
+            zf.close()
 
 
 def write_html_export(apps: List[Application], filepath: str, diagnostics: Optional[List[ScanDiagnostic]] = None):

@@ -149,8 +149,12 @@ def run_cli(argv: List[str]) -> int:
         def status(message: str):
             print(message, file=sys.stderr)
 
+        try:
+            include_sources = parse_include_sources(args.include)
+        except ValueError:
+            include_sources = None
         scanner = ApplicationScanner(status_callback=status)
-        apps = scanner.scan_all(skip_network=args.skip_network, skip_hashing=args.skip_hashing, skip_last_used=args.skip_last_used)
+        apps = scanner.scan_all(include_sources=include_sources, skip_network=args.skip_network, skip_hashing=args.skip_hashing, skip_last_used=args.skip_last_used)
         installed_norms = set()
         for app in apps:
             installed_norms.add(app.name.lower().strip())

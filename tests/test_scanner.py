@@ -363,7 +363,7 @@ class ScannerTests(unittest.TestCase):
 
         self.assertEqual(len(apps), 2)
         self.assertEqual(apps[0].name, "igdlh64.inf")
-        self.assertEqual(apps[0].publisher, "Display adapters")
+        self.assertEqual(apps[0].publisher, "Intel Corporation")
         self.assertEqual(apps[0].version, "31.0.101.5768")
         self.assertEqual(apps[0].app_type, "Driver")
 
