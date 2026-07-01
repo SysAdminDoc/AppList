@@ -41,6 +41,7 @@ class Application:
     virustotal_url: str = ""
     consistency_status: str = ""
     measured_size: str = ""
+    bloatware: str = ""
 
     def to_dict(self) -> Dict[str, str]:
         return asdict(self)
@@ -67,4 +68,5 @@ class Application:
             self.virustotal_url,
             self.consistency_status,
             self.measured_size,
+            self.bloatware,
         ]

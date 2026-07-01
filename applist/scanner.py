@@ -16,7 +16,7 @@ from time import monotonic
 from typing import Callable, Dict, List, Optional, Tuple
 
 from .models import Application, ScanDiagnostic
-from .constants import REGISTRY_PATHS
+from .constants import REGISTRY_PATHS, OEM_BLOATWARE_PUBLISHERS, OEM_BLOATWARE_NAME_PATTERNS
 
 try:
     from windowsprefetch import Prefetch
@@ -132,6 +132,15 @@ class ApplicationScanner:
                 size_kb = self._measure_directory_size_kb(app.install_location)
                 if size_kb > 0:
                     app.measured_size = self._format_size(size_kb)
+
+    def _apply_bloatware_flags(self):
+        for app in self.applications:
+            publisher_lower = app.publisher.lower().strip()
+            name_lower = app.name.lower()
+            if publisher_lower in OEM_BLOATWARE_PUBLISHERS:
+                app.bloatware = "OEM Bloatware"
+            elif any(p in name_lower for p in OEM_BLOATWARE_NAME_PATTERNS):
+                app.bloatware = "Suspected Bloatware"
 
     def _parse_install_date(self, date_str: str) -> str:
         """Parse install date from various formats."""
@@ -1476,6 +1485,8 @@ class ApplicationScanner:
             return [app for app in self.applications if app.measured_size]
 
         self._run_diagnostic_step("Directory size measurement", measure_sizes)
+
+        self._apply_bloatware_flags()
 
         # Sort by name
         self.applications.sort(key=lambda x: x.name.lower())

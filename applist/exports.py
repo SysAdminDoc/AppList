@@ -150,6 +150,7 @@ def write_csv_export(apps: List[Application], filepath: str):
             "VirusTotal URL",
             "Consistency",
             "Measured Size",
+            "Bloatware",
         ])
         for app in apps:
             writer.writerow(app.to_export_row())
