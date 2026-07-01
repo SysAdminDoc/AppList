@@ -214,6 +214,7 @@ class AppListWindow(ctk.CTk):
         self.current_page = 0
         self.page_size = PAGE_SIZE
         self.group_by_source_var = tk.BooleanVar(value=False)
+        self.group_by_var = tk.StringVar(value="None")
         self.is_scanning = False
         self.scan_has_run = False
 
@@ -539,21 +540,31 @@ class AppListWindow(ctk.CTk):
         )
         self.upgrade_filter_dropdown.pack(side="left", padx=(10, 0))
 
-        self.group_by_source_checkbox = ctk.CTkCheckBox(
+        group_label = ctk.CTkLabel(
             top_row,
-            text="Group by Source",
-            variable=self.group_by_source_var,
-            command=self._on_grouping_changed,
-            width=150,
-            height=38,
+            text="Group:",
             font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            fg_color=COLORS["accent_primary"],
-            hover_color=COLORS["accent_secondary"],
-            border_color=COLORS["border_strong"],
-            checkmark_color=COLORS["bg_primary"],
             text_color=COLORS["text_secondary"],
         )
-        self.group_by_source_checkbox.pack(side="left", padx=(10, 0))
+        group_label.pack(side="left", padx=(10, 4))
+
+        self.group_by_dropdown = ctk.CTkOptionMenu(
+            top_row,
+            values=["None", "Source", "Publisher", "Install Year", "Drive"],
+            variable=self.group_by_var,
+            command=lambda _: self._on_grouping_changed(),
+            width=130,
+            height=38,
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            fg_color=COLORS["bg_input"],
+            button_color=COLORS["accent_primary"],
+            button_hover_color=COLORS["accent_secondary"],
+            text_color=COLORS["text_primary"],
+            dropdown_fg_color=COLORS["bg_card"],
+            dropdown_text_color=COLORS["text_primary"],
+            dropdown_hover_color=COLORS["accent_primary"],
+        )
+        self.group_by_dropdown.pack(side="left")
 
         export_hint = ctk.CTkLabel(
             bottom_row,
@@ -1004,6 +1015,18 @@ class AppListWindow(ctk.CTk):
     # FILTERING & SORTING
     # ══════════════════════════════════════════════════════════════════════════
 
+    def _get_group_key_func(self):
+        mode = self.group_by_var.get()
+        if mode == "Source":
+            return lambda app: app.source or "Unknown"
+        elif mode == "Publisher":
+            return lambda app: app.publisher or "(No Publisher)"
+        elif mode == "Install Year":
+            return lambda app: app.install_date[:4] if app.install_date and len(app.install_date) >= 4 else "(Unknown Year)"
+        elif mode == "Drive":
+            return lambda app: (app.install_location[:3] if app.install_location and len(app.install_location) >= 3 and app.install_location[1] == ":" else "(No Location)")
+        return None
+
     def _populate_treeview(self):
         for item in self.tree.get_children():
             self.tree.delete(item)
@@ -1015,8 +1038,9 @@ class AppListWindow(ctk.CTk):
         page_apps = self.filtered_apps[start:end]
 
         self._sync_group_column()
-        if self.group_by_source_var.get():
-            self._populate_grouped_rows(page_apps, start)
+        group_key_func = self._get_group_key_func()
+        if group_key_func is not None:
+            self._populate_grouped_rows(page_apps, start, group_key_func)
         else:
             self._populate_flat_rows(page_apps, start)
 
@@ -1097,22 +1121,29 @@ class AppListWindow(ctk.CTk):
             self.tree_iid_to_index[iid] = index
             self.tree.insert("", "end", iid=iid, text="", values=values, tags=row_tags)
 
-    def _populate_grouped_rows(self, page_apps: List[Application], start: int):
-        source_counts = get_source_group_counts(self.filtered_apps)
+    def _populate_grouped_rows(self, page_apps: List[Application], start: int, key_func=None):
+        if key_func is None:
+            key_func = lambda app: app.source or "Unknown"
+
+        group_counts: Dict[str, int] = {}
+        for app in self.filtered_apps:
+            g = key_func(app)
+            group_counts[g] = group_counts.get(g, 0) + 1
+
         group_nodes: Dict[str, str] = {}
         blank_values = ("", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "")
 
         for offset, app in enumerate(page_apps):
             index = start + offset
-            source = app.source or "Unknown"
-            if source not in group_nodes:
-                group_iid = f"group-{len(group_nodes)}-{self._normalize_tree_iid(source)}"
-                group_nodes[source] = group_iid
+            group = key_func(app)
+            if group not in group_nodes:
+                group_iid = f"group-{len(group_nodes)}-{self._normalize_tree_iid(group)}"
+                group_nodes[group] = group_iid
                 self.tree.insert(
                     "",
                     "end",
                     iid=group_iid,
-                    text=f"{source} ({source_counts.get(source, 0)})",
+                    text=f"{group} ({group_counts.get(group, 0)})",
                     values=blank_values,
                     open=True,
                     tags=("group",),
@@ -1121,7 +1152,7 @@ class AppListWindow(ctk.CTk):
             values, row_tags = self._row_values(app)
             iid = f"app-{index}"
             self.tree_iid_to_index[iid] = index
-            self.tree.insert(group_nodes[source], "end", iid=iid, text="", values=values, tags=row_tags)
+            self.tree.insert(group_nodes[group], "end", iid=iid, text="", values=values, tags=row_tags)
 
     def _normalize_tree_iid(self, value: str) -> str:
         return "".join(ch if ch.isalnum() else "-" for ch in value.lower())[:40] or "unknown"
@@ -1207,6 +1238,7 @@ class AppListWindow(ctk.CTk):
         self._apply_filters()
 
     def _on_grouping_changed(self):
+        self.group_by_source_var.set(self.group_by_var.get() != "None")
         self.current_page = 0
         self._populate_treeview()
 
