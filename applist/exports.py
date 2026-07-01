@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import APP_NAME, APP_VERSION
+from . import APP_NAME, APP_VERSION, JSON_SCHEMA_VERSION
 from .models import Application, ScanDiagnostic
 
 
@@ -197,7 +197,7 @@ def write_json_export(apps: List[Application], filepath: str, diagnostics: Optio
     """Write applications to AppList JSON."""
     hostname = os.environ.get("COMPUTERNAME", "Unknown")
     export_data = {
-        "schema": f"AppList/{APP_VERSION}",
+        "schema": f"AppList/{JSON_SCHEMA_VERSION}",
         "generated": datetime.now().isoformat(),
         "machine": hostname,
         "total": len(apps),

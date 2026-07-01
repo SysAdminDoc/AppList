@@ -1,0 +1,83 @@
+{
+  "schema": "AppList/1.1",
+  "generated": "2026-07-01T12:00:00",
+  "machine": "TESTPC",
+  "total": 3,
+  "applications": [
+    {
+      "name": "Alpha App",
+      "publisher": "Acme",
+      "version": "2.0",
+      "install_date": "2026-06-15",
+      "last_used_date": "2026-06-30 09:15:00",
+      "install_location": "C:\\Alpha",
+      "executable_path": "C:\\Alpha\\alpha.exe",
+      "uninstall_registry_key": "HKLM\\SOFTWARE\\Alpha",
+      "uninstall_command": "C:\\Alpha\\uninstall.exe",
+      "estimated_size": "10.0 MB",
+      "source": "HKLM64",
+      "architecture": "x64",
+      "app_type": "Desktop",
+      "winget_id": "Acme.Alpha",
+      "upgrade_available": "",
+      "ghost": false,
+      "pin_status": "",
+      "sha256_hash": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "virustotal_url": "https://www.virustotal.com/gui/file/abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "consistency_status": ""
+    },
+    {
+      "name": "Gamma Suite",
+      "publisher": "NewCo",
+      "version": "1.0",
+      "install_date": "2026-07-01",
+      "last_used_date": "",
+      "install_location": "C:\\Gamma",
+      "executable_path": "C:\\Gamma\\gamma.exe",
+      "uninstall_registry_key": "HKLM\\SOFTWARE\\Gamma",
+      "uninstall_command": "C:\\Gamma\\uninstall.exe",
+      "estimated_size": "50.0 MB",
+      "source": "HKLM64",
+      "architecture": "x64",
+      "app_type": "Desktop",
+      "winget_id": "",
+      "upgrade_available": "",
+      "ghost": false,
+      "pin_status": "",
+      "sha256_hash": "",
+      "virustotal_url": "",
+      "consistency_status": ""
+    },
+    {
+      "name": "requests",
+      "publisher": "",
+      "version": "2.32.3",
+      "install_date": "",
+      "last_used_date": "",
+      "install_location": "",
+      "executable_path": "",
+      "uninstall_registry_key": "",
+      "uninstall_command": "",
+      "estimated_size": "",
+      "source": "Python (pip)",
+      "architecture": "",
+      "app_type": "Python Package",
+      "winget_id": "",
+      "upgrade_available": "",
+      "ghost": false,
+      "pin_status": "",
+      "sha256_hash": "",
+      "virustotal_url": "",
+      "consistency_status": ""
+    }
+  ],
+  "diagnostics": [
+    {
+      "source": "Scoop",
+      "status": "skipped",
+      "row_count": 0,
+      "duration_seconds": 0.0,
+      "warnings": []
+    }
+  ]
+}

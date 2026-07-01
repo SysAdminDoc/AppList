@@ -1,0 +1,62 @@
+{
+  "schema": "AppList/1.0",
+  "generated": "2026-05-01T12:00:00",
+  "machine": "TESTPC",
+  "total": 3,
+  "applications": [
+    {
+      "name": "Alpha App",
+      "publisher": "Acme",
+      "version": "1.0",
+      "install_date": "2026-04-01",
+      "install_location": "C:\\Alpha",
+      "executable_path": "",
+      "uninstall_registry_key": "HKLM\\SOFTWARE\\Alpha",
+      "uninstall_command": "C:\\Alpha\\uninstall.exe",
+      "estimated_size": "10.0 MB",
+      "source": "HKLM64",
+      "architecture": "x64",
+      "app_type": "Desktop",
+      "winget_id": "Acme.Alpha",
+      "upgrade_available": "",
+      "ghost": false,
+      "pin_status": ""
+    },
+    {
+      "name": "Beta Tool",
+      "publisher": "Contoso",
+      "version": "2.0",
+      "install_date": "",
+      "install_location": "",
+      "executable_path": "",
+      "uninstall_registry_key": "",
+      "uninstall_command": "",
+      "estimated_size": "",
+      "source": "Microsoft Store",
+      "architecture": "",
+      "app_type": "Store",
+      "winget_id": "",
+      "upgrade_available": "",
+      "ghost": false,
+      "pin_status": ""
+    },
+    {
+      "name": "requests",
+      "publisher": "",
+      "version": "2.31.0",
+      "install_date": "",
+      "install_location": "",
+      "executable_path": "",
+      "uninstall_registry_key": "",
+      "uninstall_command": "",
+      "estimated_size": "",
+      "source": "Python (pip)",
+      "architecture": "",
+      "app_type": "Python Package",
+      "winget_id": "",
+      "upgrade_available": "",
+      "ghost": false,
+      "pin_status": ""
+    }
+  ]
+}

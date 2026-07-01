@@ -5,6 +5,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
+from applist import JSON_SCHEMA_VERSION
 from applist.exports import (
     diff_json_snapshots,
     get_markdown_groups,
@@ -18,6 +19,8 @@ from applist.exports import (
     write_txt_export,
 )
 from applist.models import Application, ScanDiagnostic
+
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
 class ExportTests(unittest.TestCase):
@@ -235,6 +238,49 @@ class ExportTests(unittest.TestCase):
             self.assertEqual(diff["added"][0]["name"], "Added")
             self.assertEqual(diff["removed"][0]["name"], "Removed")
             self.assertEqual(diff["version_changed"][0]["name"], "Alpha")
+
+    def test_json_export_emits_stable_schema_version(self):
+        apps = [Application(name="Alpha")]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "out.json"
+            write_json_export(apps, str(path))
+            data = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(data["schema"], f"AppList/{JSON_SCHEMA_VERSION}")
+
+    def test_diff_cross_version_v1_0_to_v1_1_fixtures(self):
+        diff = diff_json_snapshots(
+            str(FIXTURES_DIR / "snapshot_v1_0.json"),
+            str(FIXTURES_DIR / "snapshot_v1_1.json"),
+        )
+        self.assertEqual(diff["summary"]["added"], 1)
+        self.assertEqual(diff["summary"]["removed"], 1)
+        self.assertEqual(diff["summary"]["version_changed"], 2)
+        added_names = {a["name"] for a in diff["added"]}
+        removed_names = {a["name"] for a in diff["removed"]}
+        changed_names = {c["name"] for c in diff["version_changed"]}
+        self.assertIn("Gamma Suite", added_names)
+        self.assertIn("Beta Tool", removed_names)
+        self.assertIn("Alpha App", changed_names)
+        self.assertIn("requests", changed_names)
+
+    def test_diff_handles_missing_optional_fields_gracefully(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            old_path = Path(tmp) / "old.json"
+            new_path = Path(tmp) / "new.json"
+            old_path.write_text(json.dumps({
+                "applications": [{"name": "A", "version": "1.0"}],
+            }), encoding="utf-8")
+            new_path.write_text(json.dumps({
+                "schema": "AppList/1.1",
+                "applications": [
+                    {"name": "A", "version": "1.0", "last_used_date": "2026-07-01", "sha256_hash": "abc"},
+                ],
+            }), encoding="utf-8")
+
+            diff = diff_json_snapshots(str(old_path), str(new_path))
+            self.assertEqual(diff["summary"]["version_changed"], 0)
+            self.assertEqual(diff["summary"]["added"], 0)
+            self.assertEqual(diff["summary"]["removed"], 0)
 
 
 if __name__ == "__main__":
