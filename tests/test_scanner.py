@@ -308,6 +308,25 @@ class ScannerTests(unittest.TestCase):
         self.assertEqual(apps[0].name, "numpy")
         self.assertEqual(run_mock.call_args[0][0][0], r"C:\Python312\python.exe")
 
+    def test_portable_app_scan_finds_exe_bearing_folders(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            portable_dir = Path(tmp) / "Portable"
+            portable_dir.mkdir()
+            (portable_dir / "MyTool").mkdir()
+            (portable_dir / "MyTool" / "mytool.exe").write_text("", encoding="utf-8")
+            (portable_dir / "EmptyDir").mkdir()
+
+            scanner = ApplicationScanner()
+            with mock.patch.dict("os.environ", {"LOCALAPPDATA": "", "USERPROFILE": str(tmp), "HOMEDRIVE": "Z:"}):
+                apps = scanner.scan_portable_apps()
+
+            names = {a.name for a in apps}
+            self.assertIn("MyTool", names)
+            self.assertNotIn("EmptyDir", names)
+            tool = next(a for a in apps if a.name == "MyTool")
+            self.assertEqual(tool.app_type, "Portable")
+            self.assertEqual(tool.source, "Portable")
+
     def test_wsl_scan_parses_distro_list(self):
         wsl_output = (
             "  NAME            STATE           VERSION\n"

@@ -196,6 +196,54 @@ class ApplicationScanner:
 
         return apps
 
+    def scan_portable_apps(self) -> List[Application]:
+        """Scan common portable-app directories for standalone executables."""
+        apps: List[Application] = []
+        self._update_status("Scanning portable applications...")
+
+        candidates = []
+        localappdata = os.environ.get("LOCALAPPDATA", "")
+        if localappdata:
+            candidates.append(os.path.join(localappdata, "Programs"))
+        userprofile = os.environ.get("USERPROFILE", "")
+        if userprofile:
+            candidates.append(os.path.join(userprofile, "Portable"))
+            candidates.append(os.path.join(userprofile, "Tools"))
+            candidates.append(os.path.join(userprofile, "Apps"))
+        portableapps_root = os.path.join(os.environ.get("HOMEDRIVE", "C:"), os.sep, "PortableApps")
+        if os.path.isdir(portableapps_root):
+            candidates.append(portableapps_root)
+
+        for base_dir in candidates:
+            if not os.path.isdir(base_dir):
+                continue
+            try:
+                entries = os.listdir(base_dir)
+            except OSError:
+                continue
+            for entry in entries:
+                if self._cancelled:
+                    break
+                entry_path = os.path.join(base_dir, entry)
+                if not os.path.isdir(entry_path):
+                    continue
+                norm = self._normalize_name(entry)
+                if norm in self.seen_apps:
+                    continue
+                exes = self._list_executables(entry_path)
+                if not exes:
+                    continue
+                self.seen_apps.add(norm)
+                apps.append(Application(
+                    name=entry,
+                    install_location=entry_path,
+                    executable_path=exes[0] if exes else "",
+                    source="Portable",
+                    app_type="Portable",
+                ))
+
+        return apps
+
     def scan_wsl_distros(self) -> List[Application]:
         """Scan WSL distributions via wsl --list --verbose."""
         apps: List[Application] = []
@@ -1498,6 +1546,15 @@ class ApplicationScanner:
             "Startup Items",
             "Scanning startup items...",
             self.scan_startup_items,
+        )
+        if self._cancelled:
+            return self.applications
+
+        add_source(
+            "portable",
+            "Portable Apps",
+            "Scanning portable applications...",
+            self.scan_portable_apps,
         )
         if self._cancelled:
             return self.applications

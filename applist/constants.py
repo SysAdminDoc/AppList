@@ -62,6 +62,7 @@ CANONICAL_SCAN_SOURCES = {
     "pip",
     "winget",
     "startup",
+    "portable",
     "wsl",
 }
 
@@ -83,6 +84,7 @@ SCAN_SOURCE_ALIASES = {
     "python": {"pip"},
     "winget": {"winget"},
     "startup": {"startup"},
+    "portable": {"portable"},
     "wsl": {"wsl"},
 }
 
