@@ -244,6 +244,102 @@ class ApplicationScanner:
 
         return apps
 
+    def scan_windows_features(self) -> List[Application]:
+        """Scan enabled Windows optional features."""
+        apps: List[Application] = []
+        self._update_status("Scanning Windows optional features...")
+        try:
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 "Get-WindowsOptionalFeature -Online | Where-Object {$_.State -eq 'Enabled'} | "
+                 "Select-Object FeatureName | ConvertTo-Json"],
+                capture_output=True, text=True, timeout=30,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            if result.returncode != 0 or not (result.stdout or "").strip():
+                return apps
+            data = json.loads(result.stdout)
+            if isinstance(data, dict):
+                data = [data]
+            for feat in data:
+                name = str(feat.get("FeatureName", "")).strip()
+                if not name:
+                    continue
+                norm = self._normalize_name(name)
+                if norm in self.seen_apps:
+                    continue
+                self.seen_apps.add(norm)
+                apps.append(Application(
+                    name=name,
+                    source="Windows Feature",
+                    app_type="Windows Feature",
+                ))
+        except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.SubprocessError,
+                json.JSONDecodeError, OSError):
+            pass
+        return apps
+
+    def scan_drivers(self) -> List[Application]:
+        """Scan third-party drivers via pnputil /enum-drivers."""
+        apps: List[Application] = []
+        self._update_status("Scanning installed drivers...")
+        try:
+            result = subprocess.run(
+                ["pnputil", "/enum-drivers"],
+                capture_output=True, text=True, timeout=30,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            if result.returncode != 0 or not (result.stdout or "").strip():
+                return apps
+
+            current: Dict[str, str] = {}
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                if not line:
+                    if current.get("driver_name"):
+                        name = current.get("driver_name", "")
+                        norm = self._normalize_name(name)
+                        if norm not in self.seen_apps:
+                            self.seen_apps.add(norm)
+                            apps.append(Application(
+                                name=name,
+                                publisher=current.get("provider", ""),
+                                version=current.get("version", ""),
+                                install_date=current.get("date", ""),
+                                source="Driver",
+                                app_type="Driver",
+                            ))
+                    current = {}
+                    continue
+                if ":" in line:
+                    key, _, value = line.partition(":")
+                    key = key.strip().lower()
+                    value = value.strip()
+                    if "original" in key and "name" in key:
+                        current["driver_name"] = value
+                    elif "provider" in key or "class name" in key:
+                        current["provider"] = value
+                    elif "version" in key and "driver" in key:
+                        current["version"] = value
+                    elif "date" in key and "driver" in key:
+                        current["date"] = value
+            if current.get("driver_name"):
+                name = current["driver_name"]
+                norm = self._normalize_name(name)
+                if norm not in self.seen_apps:
+                    self.seen_apps.add(norm)
+                    apps.append(Application(
+                        name=name,
+                        publisher=current.get("provider", ""),
+                        version=current.get("version", ""),
+                        install_date=current.get("date", ""),
+                        source="Driver",
+                        app_type="Driver",
+                    ))
+        except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
+            pass
+        return apps
+
     def scan_wsl_distros(self) -> List[Application]:
         """Scan WSL distributions via wsl --list --verbose."""
         apps: List[Application] = []
@@ -1555,6 +1651,24 @@ class ApplicationScanner:
             "Portable Apps",
             "Scanning portable applications...",
             self.scan_portable_apps,
+        )
+        if self._cancelled:
+            return self.applications
+
+        add_source(
+            "drivers",
+            "Drivers",
+            "Scanning installed drivers...",
+            self.scan_drivers,
+        )
+        if self._cancelled:
+            return self.applications
+
+        add_source(
+            "features",
+            "Windows Features",
+            "Scanning Windows optional features...",
+            self.scan_windows_features,
         )
         if self._cancelled:
             return self.applications

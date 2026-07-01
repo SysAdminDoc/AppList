@@ -327,6 +327,46 @@ class ScannerTests(unittest.TestCase):
             self.assertEqual(tool.app_type, "Portable")
             self.assertEqual(tool.source, "Portable")
 
+    def test_windows_features_scan_parses_enabled_features(self):
+        payload = json.dumps([
+            {"FeatureName": "Microsoft-Hyper-V"},
+            {"FeatureName": "Containers"},
+        ])
+        completed = mock.Mock(returncode=0, stdout=payload)
+        with mock.patch.object(scanner_module.subprocess, "run", return_value=completed):
+            apps = ApplicationScanner().scan_windows_features()
+
+        self.assertEqual(len(apps), 2)
+        self.assertEqual(apps[0].name, "Microsoft-Hyper-V")
+        self.assertEqual(apps[0].app_type, "Windows Feature")
+
+    def test_driver_scan_parses_pnputil_output(self):
+        pnputil_output = (
+            "Microsoft PnP Utility\n\n"
+            "Published Name:     oem42.inf\n"
+            "Original Name:      igdlh64.inf\n"
+            "Provider Name:      Intel Corporation\n"
+            "Class Name:         Display adapters\n"
+            "Class GUID:         {4d36e968}\n"
+            "Driver Version:     31.0.101.5768\n"
+            "Signer Name:        Microsoft Windows Hardware\n\n"
+            "Published Name:     oem7.inf\n"
+            "Original Name:      e1d.inf\n"
+            "Provider Name:      Intel\n"
+            "Class Name:         Net\n"
+            "Driver Version:     12.18.9.23\n"
+            "Signer Name:        Microsoft Windows Hardware\n\n"
+        )
+        completed = mock.Mock(returncode=0, stdout=pnputil_output)
+        with mock.patch.object(scanner_module.subprocess, "run", return_value=completed):
+            apps = ApplicationScanner().scan_drivers()
+
+        self.assertEqual(len(apps), 2)
+        self.assertEqual(apps[0].name, "igdlh64.inf")
+        self.assertEqual(apps[0].publisher, "Display adapters")
+        self.assertEqual(apps[0].version, "31.0.101.5768")
+        self.assertEqual(apps[0].app_type, "Driver")
+
     def test_wsl_scan_parses_distro_list(self):
         wsl_output = (
             "  NAME            STATE           VERSION\n"

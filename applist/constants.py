@@ -63,6 +63,8 @@ CANONICAL_SCAN_SOURCES = {
     "winget",
     "startup",
     "portable",
+    "drivers",
+    "features",
     "wsl",
 }
 
@@ -85,6 +87,8 @@ SCAN_SOURCE_ALIASES = {
     "winget": {"winget"},
     "startup": {"startup"},
     "portable": {"portable"},
+    "drivers": {"drivers"},
+    "features": {"features"},
     "wsl": {"wsl"},
 }
 
