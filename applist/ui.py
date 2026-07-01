@@ -35,6 +35,8 @@ from .exports import (
     write_choco_export,
     write_powershell_export,
     write_restore_bundle_export,
+    diff_json_snapshots,
+    write_diff_report,
 )
 
 PAGE_SIZE = 500
@@ -217,6 +219,7 @@ class AppListWindow(ctk.CTk):
         self.group_by_var = tk.StringVar(value="None")
         self.is_scanning = False
         self.scan_has_run = False
+        self._baseline_path = os.path.join(os.environ.get("APPDATA", ""), "AppList", "baseline.json")
 
         # Build UI
         self._create_header()
@@ -629,7 +632,13 @@ class AppListWindow(ctk.CTk):
         self.export_bundle_btn.pack(side="left", padx=(0, 6))
 
         self.diagnostics_btn = SecondaryButton(export_frame, text="Diag", width=60, command=self._show_diagnostics)
-        self.diagnostics_btn.pack(side="left")
+        self.diagnostics_btn.pack(side="left", padx=(0, 6))
+
+        self.baseline_btn = SecondaryButton(export_frame, text="Baseline", width=84, command=self._save_baseline)
+        self.baseline_btn.pack(side="left", padx=(0, 6))
+
+        self.compare_btn = SecondaryButton(export_frame, text="Compare", width=84, command=self._compare_baseline)
+        self.compare_btn.pack(side="left")
 
     def _create_main_content(self):
         """Create the main content area with treeview."""
@@ -817,7 +826,7 @@ class AppListWindow(ctk.CTk):
             self.export_txt_btn, self.export_csv_btn, self.export_md_btn,
             self.export_json_btn, self.export_winget_btn, self.export_html_btn,
             self.export_pip_btn, self.export_choco_btn, self.export_ps1_btn,
-            self.export_bundle_btn,
+            self.export_bundle_btn, self.baseline_btn, self.compare_btn,
         ):
             button.configure(state=state)
 
@@ -1655,6 +1664,44 @@ class AppListWindow(ctk.CTk):
             messagebox.showinfo("Registry Key Copied",
                 f"Could not open Regedit automatically.\n\n"
                 f"Key copied to clipboard:\n{reg_key}")
+
+    def _save_baseline(self):
+        if not self._ensure_exportable_rows():
+            return
+        try:
+            os.makedirs(os.path.dirname(self._baseline_path), exist_ok=True)
+            write_json_export(self.filtered_apps, self._baseline_path, self.scan_diagnostics)
+            self._update_status(f"Baseline saved ({len(self.filtered_apps)} apps).")
+            messagebox.showinfo("Baseline Saved",
+                f"Snapshot saved to:\n{self._baseline_path}\n\n"
+                f"{len(self.filtered_apps)} applications captured.\n"
+                "Run a new scan after changes, then click Compare.")
+        except OSError as e:
+            messagebox.showerror("Baseline Error", f"Failed to save baseline:\n{e}")
+
+    def _compare_baseline(self):
+        if not self._ensure_exportable_rows():
+            return
+        if not os.path.isfile(self._baseline_path):
+            messagebox.showwarning("No Baseline",
+                "No baseline snapshot found.\n\n"
+                "Click Baseline to save the current state first.")
+            return
+        try:
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as tmp:
+                tmp_path = tmp.name
+            write_json_export(self.filtered_apps, tmp_path, self.scan_diagnostics)
+            diff = diff_json_snapshots(self._baseline_path, tmp_path)
+            os.unlink(tmp_path)
+            report = write_diff_report(diff)
+            s = diff["summary"]
+            self._update_status(
+                f"Diff: +{s['added']} added, -{s['removed']} removed, ~{s['version_changed']} changed"
+            )
+            messagebox.showinfo("Before vs After", report[:2000])
+        except (OSError, json.JSONDecodeError) as e:
+            messagebox.showerror("Compare Error", f"Failed to compare:\n{e}")
 
     def _show_diagnostics(self):
         if not self.scan_diagnostics:
