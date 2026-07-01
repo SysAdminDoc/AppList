@@ -62,3 +62,66 @@ Remaining incomplete work only. Completed items are deleted. Blocked items belon
   Touches: `tools/build_exe.ps1`, README, CHANGELOG
   Acceptance: each build emits SHA-256 checksums, signature status, PyInstaller version, Python version, dependency versions, and a machine-readable release manifest beside `dist/AppList.exe`.
   Complexity: S
+
+- [ ] P0 — Frozen pip scan guard
+  Why: packaged PyInstaller builds expose `sys.executable` as `AppList.exe`, but `scan_pip()` currently calls `sys.executable -m pip list`, which can relaunch or fail in the frozen app.
+  Evidence: `applist/scanner.py:907-918`; PyInstaller runtime/common-issues docs; pip Windows CLI docs.
+  Touches: `applist/scanner.py`, `applist/cli.py`, `tests/test_scanner.py`, `tools/build_exe.ps1`
+  Acceptance: frozen-mode tests prove pip scanning uses an external Python launcher/interpreter or emits a clear skipped diagnostic without launching `AppList.exe`; normal source-mode pip scans still pass.
+  Complexity: M
+
+- [ ] P0 — Non-destructive restore bundle writes
+  Why: restore bundle export deletes an existing output folder before writing, which can destroy user data if the destination is reused or mistyped.
+  Evidence: `applist/exports.py:342-346`
+  Touches: `applist/exports.py`, `applist/cli.py`, `applist/ui.py`, `tests/test_exports.py`
+  Acceptance: existing non-empty folders are refused unless an explicit overwrite flag/path choice is provided; bundle writes use a temp directory and atomic replace where possible; tests cover folder and zip destinations.
+  Complexity: M
+
+- [ ] P1 — Restore bundle validator
+  Why: bundles now contain multiple restore artifacts, but there is no command that proves the manifest, included files, winget JSON, pip requirements, Chocolatey config, and restore script are internally valid.
+  Evidence: `applist/exports.py:330-384`; winget import docs; Chocolatey export/install docs; pip requirements workflow.
+  Touches: `applist/exports.py`, `applist/cli.py`, `applist/ui.py`, `tests/test_exports.py`, README
+  Acceptance: CLI and GUI can validate a bundle path and report missing files, malformed package-manager artifacts, skipped sections, and restore-script issues with a nonzero CLI exit on failure.
+  Complexity: M
+
+- [ ] P1 — Scan mode controls for offline, no-network, and no-hash runs
+  Why: full scans always perform winget/source enrichment, last-used enrichment, and executable hashing, but operators need fast/private inventory modes for disconnected or sensitive systems.
+  Evidence: `applist/scanner.py:1335-1378`; winget issue #4449; current hash and VirusTotal enrichment behavior.
+  Touches: `applist/scanner.py`, `applist/cli.py`, `applist/ui.py`, `applist/models.py`, tests
+  Acceptance: CLI flags and GUI controls can disable network/package-manager enrichment, last-used collection, and executable hashing independently; diagnostics record which enrichments were skipped and why.
+  Complexity: M
+
+- [ ] P1 — Privacy-safe redacted exports
+  Why: default exports include machine name, full user paths, executable paths, registry keys, uninstall commands, hashes, and VirusTotal links that users may need to share safely.
+  Evidence: `applist/exports.py:196-209`; `applist/models.py:47-68`; Belarc local privacy positioning.
+  Touches: `applist/exports.py`, `applist/cli.py`, `applist/ui.py`, `tests/test_exports.py`, README
+  Acceptance: TXT/CSV/Markdown/JSON/HTML exports support a redaction option that removes or masks machine names, usernames, local paths, registry keys, uninstall commands, hashes, and external lookup URLs while preserving app names, publishers, versions, source, and high-level status.
+  Complexity: M
+
+- [ ] P1 — First-class scan diagnostics panel and durable scan log
+  Why: scan diagnostics exist internally and in some exports, but GUI users only see a summary count after partial failures.
+  Evidence: `applist/ui.py:952-960`; `applist/exports.py:17-40`; `applist/scanner.py:70-97`
+  Touches: `applist/ui.py`, `applist/models.py`, `applist/exports.py`, tests
+  Acceptance: GUI shows a diagnostics view with source, status, row count, duration, warnings, and recovery hints; CLI can emit the same diagnostics as JSON; the last scan log is saved under `%APPDATA%\AppList`.
+  Complexity: M
+
+- [ ] P2 — CycloneDX and PURL SBOM export
+  Why: security and compliance tools consume CycloneDX/PURL, and AppList already captures enough package/source metadata to emit a machine-readable software inventory BOM.
+  Evidence: CycloneDX specification; Package-URL specification; `requirements.txt` includes `cyclonedx-python-lib` and `packageurl-python` through the audit toolchain.
+  Touches: `applist/exports.py`, `applist/models.py`, `applist/cli.py`, `applist/ui.py`, tests, README
+  Acceptance: AppList can export CycloneDX JSON with components for winget, Chocolatey, Scoop, pip, Store, and registry/program-file apps where identifiers exist; PURLs are emitted for supported ecosystems and AppList-specific properties preserve source evidence.
+  Complexity: M
+
+- [ ] P2 — Remote live inventory connector
+  Why: comparable tools support remote Windows inventory, and this is distinct from the existing offline-import roadmap item for mounted drives or hives.
+  Evidence: NirSoft UninstallView remote inventory; PDQ Inventory remote scanning; Intune app inventory collection model.
+  Touches: `applist/scanner.py`, `applist/cli.py`, `applist/ui.py`, `applist/models.py`, tests, README
+  Acceptance: CLI can scan a named remote Windows host using Remote Registry and/or PowerShell remoting when available, labels rows with the remote host, records unreachable/permission failures as diagnostics, and never mutates the remote machine.
+  Complexity: XL
+
+- [ ] P2 — Source adapter result contract
+  Why: adding WSL, drivers, remote inventory, custom rules, SBOM metadata, and future detectors will keep expanding the scanner unless each source returns a structured result with common diagnostics.
+  Evidence: `applist/scanner.py`; OCS Inventory plugin model; PDQ custom scanner model; existing `ScanDiagnostic` dataclass.
+  Touches: `applist/scanner.py`, `applist/models.py`, `applist/cli.py`, `applist/ui.py`, tests
+  Acceptance: each source adapter returns applications plus status, warnings, duration, capability checks, and recovery hints through one contract; existing exports and diagnostics consume the contract without source-specific branching.
+  Complexity: L
