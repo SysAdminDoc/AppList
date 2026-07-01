@@ -196,6 +196,47 @@ class ApplicationScanner:
 
         return apps
 
+    def scan_wsl_distros(self) -> List[Application]:
+        """Scan WSL distributions via wsl --list --verbose."""
+        apps: List[Application] = []
+        self._update_status("Scanning WSL distributions...")
+        try:
+            result = subprocess.run(
+                ["wsl", "--list", "--verbose"],
+                capture_output=True, timeout=15,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            output = result.stdout.decode("utf-16-le", errors="replace") if result.stdout else ""
+            if result.returncode != 0 or not output.strip():
+                return apps
+
+            for line in output.splitlines():
+                line = line.strip().lstrip("*").strip()
+                if not line or line.startswith("NAME") or line.startswith("---"):
+                    continue
+                parts = line.split()
+                if len(parts) < 3:
+                    continue
+                state = parts[-2] if len(parts) >= 3 else ""
+                wsl_ver = parts[-1] if len(parts) >= 3 else ""
+                name = " ".join(parts[:-2])
+                if not name:
+                    continue
+                norm = self._normalize_name(name)
+                if norm in self.seen_apps:
+                    continue
+                self.seen_apps.add(norm)
+                apps.append(Application(
+                    name=name,
+                    version=f"WSL {wsl_ver}",
+                    source="WSL",
+                    app_type="WSL Distro",
+                    consistency_status=state,
+                ))
+        except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
+            pass
+        return apps
+
     def _apply_bloatware_flags(self):
         for app in self.applications:
             publisher_lower = app.publisher.lower().strip()
@@ -1457,6 +1498,15 @@ class ApplicationScanner:
             "Startup Items",
             "Scanning startup items...",
             self.scan_startup_items,
+        )
+        if self._cancelled:
+            return self.applications
+
+        add_source(
+            "wsl",
+            "WSL Distros",
+            "Scanning WSL distributions...",
+            self.scan_wsl_distros,
         )
         if self._cancelled:
             return self.applications

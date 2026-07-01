@@ -308,6 +308,23 @@ class ScannerTests(unittest.TestCase):
         self.assertEqual(apps[0].name, "numpy")
         self.assertEqual(run_mock.call_args[0][0][0], r"C:\Python312\python.exe")
 
+    def test_wsl_scan_parses_distro_list(self):
+        wsl_output = (
+            "  NAME            STATE           VERSION\n"
+            "* Ubuntu-22.04    Running         2\n"
+            "  Debian          Stopped         1\n"
+        ).encode("utf-16-le")
+        completed = mock.Mock(returncode=0, stdout=wsl_output)
+        with mock.patch.object(scanner_module.subprocess, "run", return_value=completed):
+            apps = ApplicationScanner().scan_wsl_distros()
+
+        self.assertEqual(len(apps), 2)
+        self.assertEqual(apps[0].name, "Ubuntu-22.04")
+        self.assertEqual(apps[0].version, "WSL 2")
+        self.assertEqual(apps[0].app_type, "WSL Distro")
+        self.assertEqual(apps[1].name, "Debian")
+        self.assertEqual(apps[1].consistency_status, "Stopped")
+
     def test_scan_all_skip_flags_record_skipped_diagnostics(self):
         scanner = ApplicationScanner()
         with mock.patch.object(scanner, "scan_registry", return_value=[Application(name="Alpha")]):
