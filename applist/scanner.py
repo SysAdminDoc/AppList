@@ -112,6 +112,27 @@ class ApplicationScanner:
         else:
             return f"{size_kb / (1024 * 1024):.2f} GB"
 
+    def _measure_directory_size_kb(self, path: str) -> int:
+        """Walk a directory and return total size in KB."""
+        total = 0
+        try:
+            for dirpath, _dirnames, filenames in os.walk(path):
+                for f in filenames:
+                    try:
+                        total += os.path.getsize(os.path.join(dirpath, f))
+                    except OSError:
+                        pass
+        except OSError:
+            return 0
+        return total // 1024
+
+    def _apply_measured_sizes(self):
+        for app in self.applications:
+            if app.install_location and os.path.isdir(app.install_location):
+                size_kb = self._measure_directory_size_kb(app.install_location)
+                if size_kb > 0:
+                    app.measured_size = self._format_size(size_kb)
+
     def _parse_install_date(self, date_str: str) -> str:
         """Parse install date from various formats."""
         if not date_str:
@@ -1449,6 +1470,12 @@ class ApplicationScanner:
                 app.ghost = True
 
         self._apply_package_manager_consistency()
+
+        def measure_sizes() -> List[Application]:
+            self._apply_measured_sizes()
+            return [app for app in self.applications if app.measured_size]
+
+        self._run_diagnostic_step("Directory size measurement", measure_sizes)
 
         # Sort by name
         self.applications.sort(key=lambda x: x.name.lower())

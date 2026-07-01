@@ -40,6 +40,7 @@ class Application:
     sha256_hash: str = ""
     virustotal_url: str = ""
     consistency_status: str = ""
+    measured_size: str = ""
 
     def to_dict(self) -> Dict[str, str]:
         return asdict(self)
@@ -65,4 +66,5 @@ class Application:
             self.sha256_hash,
             self.virustotal_url,
             self.consistency_status,
+            self.measured_size,
         ]

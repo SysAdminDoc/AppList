@@ -114,6 +114,8 @@ def write_txt_export(apps: List[Application], filepath: str, diagnostics: Option
                 f.write(f"       VirusTotal:       {app.virustotal_url}\n")
             if app.consistency_status:
                 f.write(f"       Consistency:      {app.consistency_status}\n")
+            if app.measured_size:
+                f.write(f"       Measured Size:    {app.measured_size}\n")
             f.write(f"       Type:             {app.app_type}\n")
             f.write(f"       Source:           {app.source}\n")
             f.write("\n")
@@ -147,6 +149,7 @@ def write_csv_export(apps: List[Application], filepath: str):
             "SHA-256",
             "VirusTotal URL",
             "Consistency",
+            "Measured Size",
         ])
         for app in apps:
             writer.writerow(app.to_export_row())
