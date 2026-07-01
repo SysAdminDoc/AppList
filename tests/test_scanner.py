@@ -308,6 +308,22 @@ class ScannerTests(unittest.TestCase):
         self.assertEqual(apps[0].name, "numpy")
         self.assertEqual(run_mock.call_args[0][0][0], r"C:\Python312\python.exe")
 
+    def test_scan_all_skip_flags_record_skipped_diagnostics(self):
+        scanner = ApplicationScanner()
+        with mock.patch.object(scanner, "scan_registry", return_value=[Application(name="Alpha")]):
+            scanner.scan_all(
+                include_sources={"registry"},
+                skip_network=True,
+                skip_hashing=True,
+                skip_last_used=True,
+            )
+
+        diag_map = {d.source: d.status for d in scanner.scan_diagnostics}
+        self.assertEqual(diag_map["winget"], "skipped")
+        self.assertEqual(diag_map["Last-used activity"], "skipped")
+        self.assertEqual(diag_map["Executable hashing"], "skipped")
+        self.assertEqual(diag_map["Windows Registry"], "ok")
+
     def test_userassist_timestamp_parser_reads_filetime_offset(self):
         scanner = ApplicationScanner()
         payload = bytearray(72)

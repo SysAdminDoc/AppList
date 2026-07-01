@@ -1273,7 +1273,14 @@ class ApplicationScanner:
             self._log_warning(f"winget pin list failed: {e}")
         return pin_map
 
-    def scan_all(self, include_sources: Optional[set] = None) -> List[Application]:
+    def scan_all(
+        self,
+        include_sources: Optional[set] = None,
+        *,
+        skip_network: bool = False,
+        skip_hashing: bool = False,
+        skip_last_used: bool = False,
+    ) -> List[Application]:
         """Perform comprehensive scan of all sources."""
         self._cancelled = False
         self.applications = []
@@ -1381,7 +1388,9 @@ class ApplicationScanner:
                         app.pin_status = pin_map[app.winget_id]
             return [app for app in self.applications if app.winget_id]
 
-        if source_enabled("winget"):
+        if skip_network:
+            self._record_skipped_source("winget")
+        elif source_enabled("winget"):
             self._update_status("Phase 7/9: Cross-referencing with winget...")
             self._run_diagnostic_step("winget", scan_winget_cross_reference)
         else:
@@ -1395,8 +1404,15 @@ class ApplicationScanner:
             self._apply_virustotal_hashes()
             return [app for app in self.applications if app.sha256_hash]
 
-        self._run_diagnostic_step("Last-used activity", scan_last_used)
-        self._run_diagnostic_step("Executable hashing", scan_virustotal_hashes)
+        if skip_last_used:
+            self._record_skipped_source("Last-used activity")
+        else:
+            self._run_diagnostic_step("Last-used activity", scan_last_used)
+
+        if skip_hashing:
+            self._record_skipped_source("Executable hashing")
+        else:
+            self._run_diagnostic_step("Executable hashing", scan_virustotal_hashes)
 
         # Ghost entry detection: flag apps whose install location doesn't exist
         for app in self.applications:

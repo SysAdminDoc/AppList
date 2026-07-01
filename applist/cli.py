@@ -69,6 +69,21 @@ def build_cli_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Allow overwriting an existing non-empty bundle folder.",
     )
+    parser.add_argument(
+        "--skip-network",
+        action="store_true",
+        help="Skip winget cross-reference and other network-dependent enrichment.",
+    )
+    parser.add_argument(
+        "--skip-hashing",
+        action="store_true",
+        help="Skip SHA-256 executable hashing and VirusTotal URL generation.",
+    )
+    parser.add_argument(
+        "--skip-last-used",
+        action="store_true",
+        help="Skip UserAssist and Prefetch last-used date enrichment.",
+    )
     parser.add_argument("--version", action="version", version=f"{APP_NAME} v{APP_VERSION}")
     return parser
 
@@ -150,7 +165,12 @@ def run_cli(argv: List[str]) -> int:
         print(message, file=sys.stderr)
 
     scanner = ApplicationScanner(status_callback=status)
-    apps = scanner.scan_all(include_sources=include_sources)
+    apps = scanner.scan_all(
+        include_sources=include_sources,
+        skip_network=args.skip_network,
+        skip_hashing=args.skip_hashing,
+        skip_last_used=args.skip_last_used,
+    )
     diagnostics = scanner.scan_diagnostics
     reportable_diagnostics = [
         diagnostic for diagnostic in diagnostics
