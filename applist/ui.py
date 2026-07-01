@@ -220,6 +220,18 @@ class AppListWindow(ctk.CTk):
         self.is_scanning = False
         self.scan_has_run = False
         self._baseline_path = os.path.join(os.environ.get("APPDATA", ""), "AppList", "baseline.json")
+        self._layout_path = os.path.join(os.environ.get("APPDATA", ""), "AppList", "layout.json")
+        self._all_columns = (
+            "name", "publisher", "version", "install_date", "last_used_date",
+            "type", "source", "upgrade_available", "pin_status", "winget_id",
+            "sha256_hash", "virustotal", "consistency", "size", "architecture",
+            "install_location", "registry_key",
+        )
+        self._default_visible = {
+            "name", "publisher", "version", "install_date", "type", "source",
+            "upgrade_available", "winget_id", "size",
+        }
+        self._visible_columns = self._load_column_layout()
 
         # Build UI
         self._create_header()
@@ -638,7 +650,10 @@ class AppListWindow(ctk.CTk):
         self.baseline_btn.pack(side="left", padx=(0, 6))
 
         self.compare_btn = SecondaryButton(export_frame, text="Compare", width=84, command=self._compare_baseline)
-        self.compare_btn.pack(side="left")
+        self.compare_btn.pack(side="left", padx=(0, 6))
+
+        self.columns_btn = SecondaryButton(export_frame, text="Columns", width=84, command=self._show_column_chooser)
+        self.columns_btn.pack(side="left")
 
     def _create_main_content(self):
         """Create the main content area with treeview."""
@@ -709,6 +724,8 @@ class AppListWindow(ctk.CTk):
             self.tree.column(col, width=width, minwidth=80, anchor="w")
         self.tree.heading("#0", text="Group", anchor="w")
         self.tree.column("#0", width=0, minwidth=0, stretch=False, anchor="w")
+
+        self._apply_column_visibility()
 
         # Pack treeview and scrollbars
         y_scroll.pack(side="right", fill="y")
@@ -1737,6 +1754,86 @@ class AppListWindow(ctk.CTk):
                 json.dump(log_data, f, indent=2, ensure_ascii=False)
         except OSError:
             pass
+
+    def _load_column_layout(self) -> set:
+        try:
+            if os.path.isfile(self._layout_path):
+                with open(self._layout_path, encoding="utf-8") as f:
+                    data = json.load(f)
+                visible = set(data.get("visible_columns", []))
+                if visible:
+                    return visible & set(self._all_columns)
+        except (OSError, json.JSONDecodeError, TypeError):
+            pass
+        return set(self._default_visible)
+
+    def _save_column_layout(self):
+        try:
+            os.makedirs(os.path.dirname(self._layout_path), exist_ok=True)
+            with open(self._layout_path, "w", encoding="utf-8") as f:
+                json.dump({"visible_columns": sorted(self._visible_columns)}, f, indent=2)
+        except OSError:
+            pass
+
+    def _apply_column_visibility(self):
+        column_config = {
+            "name": 260, "publisher": 180, "version": 100, "install_date": 105,
+            "last_used_date": 145, "type": 132, "source": 132, "upgrade_available": 175,
+            "pin_status": 120, "winget_id": 200, "sha256_hash": 240, "virustotal": 105,
+            "consistency": 170, "size": 90, "architecture": 80, "install_location": 280,
+            "registry_key": 320,
+        }
+        for col in self._all_columns:
+            if col in self._visible_columns:
+                self.tree.column(col, width=column_config.get(col, 120), minwidth=80)
+            else:
+                self.tree.column(col, width=0, minwidth=0)
+
+    def _show_column_chooser(self):
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Column Chooser")
+        dialog.geometry("320x500")
+        dialog.resizable(False, True)
+        dialog.transient(self)
+        dialog.grab_set()
+
+        heading_names = {
+            "name": "Application", "publisher": "Publisher", "version": "Version",
+            "install_date": "Installed", "last_used_date": "Last Used", "type": "Type",
+            "source": "Source", "upgrade_available": "Upgrade", "pin_status": "Pin",
+            "winget_id": "Winget ID", "sha256_hash": "SHA-256", "virustotal": "VirusTotal",
+            "consistency": "Consistency", "size": "Size", "architecture": "Arch",
+            "install_location": "Location", "registry_key": "Registry Key",
+        }
+
+        check_vars = {}
+        scroll = ctk.CTkScrollableFrame(dialog, fg_color="transparent")
+        scroll.pack(fill="both", expand=True, padx=10, pady=(10, 5))
+        for col in self._all_columns:
+            var = tk.BooleanVar(value=col in self._visible_columns)
+            check_vars[col] = var
+            ctk.CTkCheckBox(
+                scroll, text=heading_names.get(col, col),
+                variable=var, width=280,
+                font=ctk.CTkFont(family="Segoe UI", size=12),
+                fg_color=COLORS["accent_primary"],
+                hover_color=COLORS["accent_secondary"],
+                text_color=COLORS["text_primary"],
+            ).pack(anchor="w", pady=2)
+
+        def apply():
+            self._visible_columns = {col for col, var in check_vars.items() if var.get()}
+            if not self._visible_columns:
+                self._visible_columns = {"name"}
+            self._apply_column_visibility()
+            self._save_column_layout()
+            dialog.destroy()
+
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=10, pady=(0, 10))
+        ctk.CTkButton(btn_frame, text="Apply", command=apply, width=100).pack(side="right", padx=5)
+        ctk.CTkButton(btn_frame, text="Cancel", command=dialog.destroy, width=100,
+                       fg_color=COLORS["bg_elevated"]).pack(side="right")
 
     def _on_double_click(self, event):
         self._open_location()
