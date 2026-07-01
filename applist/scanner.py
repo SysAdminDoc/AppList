@@ -133,6 +133,69 @@ class ApplicationScanner:
                 if size_kb > 0:
                     app.measured_size = self._format_size(size_kb)
 
+    def scan_startup_items(self) -> List[Application]:
+        """Scan auto-start entries from registry Run keys and Startup folders."""
+        apps: List[Application] = []
+        self._update_status("Scanning startup items...")
+
+        run_keys = [
+            (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", "HKLM Run"),
+            (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce", "HKLM RunOnce"),
+            (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", "HKCU Run"),
+            (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce", "HKCU RunOnce"),
+        ]
+
+        for hive, path, source_label in run_keys:
+            try:
+                with winreg.OpenKey(hive, path, 0, winreg.KEY_READ) as key:
+                    i = 0
+                    while True:
+                        try:
+                            name, value, _ = winreg.EnumValue(key, i)
+                            i += 1
+                            norm = self._normalize_name(name)
+                            if norm in self.seen_apps:
+                                continue
+                            self.seen_apps.add(norm)
+                            apps.append(Application(
+                                name=name,
+                                uninstall_command=str(value),
+                                source=source_label,
+                                app_type="Startup",
+                            ))
+                        except OSError:
+                            break
+            except OSError:
+                pass
+
+        startup_folders = []
+        appdata = os.environ.get("APPDATA", "")
+        if appdata:
+            startup_folders.append(os.path.join(appdata, r"Microsoft\Windows\Start Menu\Programs\Startup"))
+        allusers = os.environ.get("PROGRAMDATA", "")
+        if allusers:
+            startup_folders.append(os.path.join(allusers, r"Microsoft\Windows\Start Menu\Programs\Startup"))
+
+        for folder in startup_folders:
+            if not os.path.isdir(folder):
+                continue
+            for filename in os.listdir(folder):
+                if filename.lower().endswith((".lnk", ".bat", ".cmd", ".exe")):
+                    name = os.path.splitext(filename)[0]
+                    norm = self._normalize_name(name)
+                    if norm in self.seen_apps:
+                        continue
+                    self.seen_apps.add(norm)
+                    apps.append(Application(
+                        name=name,
+                        install_location=folder,
+                        executable_path=os.path.join(folder, filename),
+                        source="Startup Folder",
+                        app_type="Startup",
+                    ))
+
+        return apps
+
     def _apply_bloatware_flags(self):
         for app in self.applications:
             publisher_lower = app.publisher.lower().strip()
@@ -1385,6 +1448,15 @@ class ApplicationScanner:
             "Python (pip)",
             "Phase 6/9: Scanning Python (pip) packages...",
             self.scan_pip,
+        )
+        if self._cancelled:
+            return self.applications
+
+        add_source(
+            "startup",
+            "Startup Items",
+            "Scanning startup items...",
+            self.scan_startup_items,
         )
         if self._cancelled:
             return self.applications

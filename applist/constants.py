@@ -61,6 +61,7 @@ CANONICAL_SCAN_SOURCES = {
     "scoop",
     "pip",
     "winget",
+    "startup",
 }
 
 SCAN_SOURCE_ALIASES = {
@@ -80,6 +81,7 @@ SCAN_SOURCE_ALIASES = {
     "pip": {"pip"},
     "python": {"pip"},
     "winget": {"winget"},
+    "startup": {"startup"},
 }
 
 TYPE_FILTERS = [
