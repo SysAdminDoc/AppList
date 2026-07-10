@@ -149,6 +149,7 @@ def write_csv_export(apps: List[Application], filepath: str):
             "Consistency",
             "Measured Size",
             "Bloatware",
+            "Startup Impact",
         ])
         for app in apps:
             writer.writerow(app.to_export_row())
@@ -159,18 +160,24 @@ def get_markdown_groups(apps: List[Application]) -> List[Tuple[str, List[Applica
     group_titles = {
         "Desktop": "Desktop Apps",
         "Store App": "Store / UWP Apps",
+        "Provisioned Package": "Provisioned Packages",
         "Desktop (Unregistered)": "Unregistered (Program Files)",
         "Chocolatey": "Chocolatey Packages",
         "Scoop": "Scoop Apps",
         "Python Package": "Python Packages (pip)",
+        "Service": "Windows Services",
+        "Scheduled Task": "Scheduled Tasks",
     }
     group_order = [
         "Desktop",
         "Store App",
+        "Provisioned Package",
         "Desktop (Unregistered)",
         "Chocolatey",
         "Scoop",
         "Python Package",
+        "Service",
+        "Scheduled Task",
     ]
     groups: Dict[str, List[Application]] = {}
     for app in apps:
@@ -350,6 +357,89 @@ def write_powershell_export(apps: List[Application], filepath: str) -> int:
             lines.append(f"# Manual: {app.name} v{app.version} ({app.publisher})" if app.publisher else f"# Manual: {app.name} v{app.version}")
     if count == 0:
         raise ValueError("No applications have package-manager install commands.")
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    return count
+
+
+def _removal_command_for(app: Application) -> Optional[str]:
+    """Return a per-source removal/disable command for an application, or None."""
+    app_type = app.app_type
+    if app_type == "Store App":
+        return app.uninstall_command or f'Get-AppxPackage "*{app.name.replace("[Store] ", "")}*" | Remove-AppxPackage'
+    if app_type == "Provisioned Package":
+        return app.uninstall_command  # Remove-AppxProvisionedPackage ...
+    if app_type in {"Service", "Scheduled Task"}:
+        return app.uninstall_command  # Set-Service ... Disabled / Disable-ScheduledTask ...
+    if app_type == "Startup":
+        if app.source and "Folder" in app.source and app.executable_path:
+            return f'Remove-Item -LiteralPath "{app.executable_path}" -Force  # startup shortcut'
+        return f'# Startup (registry Run): remove value "{app.name}" from the Run key manually'
+    if app_type == "Chocolatey":
+        return f'choco uninstall "{app.name}" -y'
+    if app_type == "Scoop":
+        return f'scoop uninstall "{app.name}"'
+    if app_type == "Python Package":
+        return f'py -m pip uninstall -y "{app.name}"'
+    if app.winget_id:
+        return f'winget uninstall --id {app.winget_id} --silent --accept-source-agreements'
+    if app.uninstall_command:
+        return app.uninstall_command
+    return None
+
+
+def write_removal_script_export(apps: List[Application], filepath: str) -> int:
+    """Write a per-source removal/disable PowerShell script (folded in from
+    SoftwareScannerGUI). Defaults to a dry run — set $DryRun = $false to arm it.
+    """
+    grouped: Dict[str, List[str]] = {}
+    count = 0
+    for app in sorted(apps, key=lambda a: (a.app_type, a.name.lower())):
+        command = _removal_command_for(app)
+        if not command:
+            continue
+        grouped.setdefault(app.app_type, [])
+        label = app.name.replace("`", "'")
+        grouped[app.app_type].append((label, command))
+        if not command.lstrip().startswith("#"):
+            count += 1
+
+    if count == 0:
+        raise ValueError("No applications have a removal command available.")
+
+    lines = [
+        "#Requires -RunAsAdministrator",
+        f"# {APP_NAME} v{APP_VERSION} - Removal / Disable Script",
+        f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        "#",
+        "# SAFETY: this script is a DRY RUN by default. Review every line, then",
+        "#         set $DryRun = $false to actually remove/disable the items.",
+        "#         Services and scheduled tasks are DISABLED, not deleted.",
+        "",
+        "$DryRun = $true",
+        "$ErrorActionPreference = 'Continue'",
+        "$removed = 0; $failed = 0",
+        "",
+        "function Invoke-Removal([string]$Label, [string]$Command) {",
+        "    if ($DryRun) { Write-Host \"[dry-run] $Label -> $Command\" -ForegroundColor Yellow; return }",
+        "    Write-Host \"[remove] $Label\" -ForegroundColor Cyan",
+        "    try { Invoke-Expression $Command; $script:removed++ }",
+        "    catch { Write-Warning \"Failed: $Label -> $($_.Exception.Message)\"; $script:failed++ }",
+        "}",
+        "",
+    ]
+    for app_type in sorted(grouped):
+        lines.append(f"# ── {app_type} ──")
+        for label, command in grouped[app_type]:
+            if command.lstrip().startswith("#"):
+                lines.append(command)
+            else:
+                safe_label = label.replace('"', "'")
+                safe_command = command.replace("'", "''")
+                lines.append(f"Invoke-Removal -Label \"{safe_label}\" -Command '{safe_command}'")
+        lines.append("")
+
+    lines.append('Write-Host "Done. Removed/disabled: $removed, Failed: $failed" -ForegroundColor Green')
     with open(filepath, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
     return count

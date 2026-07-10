@@ -494,6 +494,67 @@ class ScannerTests(unittest.TestCase):
         ancient = int((datetime(1800, 1, 1) - scanner_module.FILETIME_EPOCH).total_seconds() * 10_000_000)
         self.assertEqual(scanner._filetime_to_string(ancient), "")
 
+    # ── Folded-in SoftwareScannerGUI sources ────────────────────────────────
+
+    def test_services_scan_disables_not_deletes(self):
+        payload = [{
+            "Name": "Fabrikam", "DisplayName": "Fabrikam Updater",
+            "StartMode": "Auto", "State": "Running",
+            "PathName": r"C:\Program Files\Fabrikam\svc.exe",
+        }]
+        completed = mock.Mock(returncode=0, stdout=json.dumps(payload), stderr="")
+        with mock.patch.object(scanner_module.subprocess, "run", return_value=completed) as run_mock:
+            apps = ApplicationScanner().scan_services()
+        self.assertEqual(len(apps), 1)
+        self.assertEqual(apps[0].app_type, "Service")
+        self.assertIn("Set-Service", apps[0].uninstall_command)
+        self.assertIn("Disabled", apps[0].uninstall_command)
+        self.assertFalse(run_mock.call_args.kwargs.get("shell", False))
+
+    def test_scheduled_tasks_skip_microsoft_and_disabled(self):
+        payload = [
+            {"TaskName": "FabrikamUpdate", "TaskPath": "\\", "State": "Ready", "Author": "Fabrikam"},
+            {"TaskName": "OneDrive Standalone Update", "TaskPath": "\\Microsoft\\Windows\\OneDrive\\", "State": "Ready", "Author": "MS"},
+        ]
+        completed = mock.Mock(returncode=0, stdout=json.dumps(payload), stderr="")
+        with mock.patch.object(scanner_module.subprocess, "run", return_value=completed):
+            apps = ApplicationScanner().scan_scheduled_tasks()
+        self.assertEqual(len(apps), 1)
+        self.assertEqual(apps[0].name, "FabrikamUpdate")
+        self.assertIn("Disable-ScheduledTask", apps[0].uninstall_command)
+
+    def test_provisioned_scan_builds_remove_command(self):
+        payload = [{
+            "DisplayName": "Microsoft.XboxGamingOverlay", "PublisherId": "8wekyb",
+            "Version": "5.0.0", "PackageName": "Microsoft.XboxGamingOverlay_5.0.0_x64__8wekyb",
+        }]
+        completed = mock.Mock(returncode=0, stdout=json.dumps(payload), stderr="")
+        with mock.patch.object(scanner_module.subprocess, "run", return_value=completed):
+            apps = ApplicationScanner().scan_provisioned_packages()
+        self.assertEqual(len(apps), 1)
+        self.assertEqual(apps[0].app_type, "Provisioned Package")
+        self.assertIn("Remove-AppxProvisionedPackage", apps[0].uninstall_command)
+        self.assertTrue(apps[0].name.startswith("[Provisioned]"))
+
+    def test_provisioned_scan_skips_frameworks(self):
+        payload = [{"DisplayName": "Microsoft.VCLibs.140.00", "PackageName": "x", "Version": "1"}]
+        completed = mock.Mock(returncode=0, stdout=json.dumps(payload), stderr="")
+        with mock.patch.object(scanner_module.subprocess, "run", return_value=completed):
+            apps = ApplicationScanner().scan_provisioned_packages()
+        self.assertEqual(apps, [])
+
+    def test_startup_impact_rating(self):
+        scanner = ApplicationScanner()
+        scanner.applications = [
+            Application(name="OneDrive", app_type="Startup"),
+            Application(name="MyLittleNote", app_type="Startup"),
+            Application(name="Some Desktop App", app_type="Desktop"),
+        ]
+        scanner._apply_startup_impact()
+        self.assertEqual(scanner.applications[0].startup_impact, "High")
+        self.assertEqual(scanner.applications[1].startup_impact, "Low")
+        self.assertEqual(scanner.applications[2].startup_impact, "")
+
 
 if __name__ == "__main__":
     unittest.main()

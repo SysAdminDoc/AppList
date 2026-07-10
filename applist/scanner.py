@@ -16,7 +16,12 @@ from time import monotonic
 from typing import Callable, Dict, List, Optional, Tuple
 
 from .models import Application, ScanDiagnostic
-from .constants import REGISTRY_PATHS, OEM_BLOATWARE_PUBLISHERS, OEM_BLOATWARE_NAME_PATTERNS
+from .constants import (
+    REGISTRY_PATHS,
+    OEM_BLOATWARE_PUBLISHERS,
+    OEM_BLOATWARE_NAME_PATTERNS,
+    STARTUP_HIGH_IMPACT,
+)
 
 try:
     from windowsprefetch import Prefetch
@@ -382,6 +387,156 @@ class ApplicationScanner:
         except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
             pass
         return apps
+
+    def scan_services(self) -> List[Application]:
+        """Scan Windows services (folded in from SoftwareScannerGUI)."""
+        apps: List[Application] = []
+        self._update_status("Scanning Windows services...")
+        try:
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 "Get-CimInstance Win32_Service | Select-Object Name, DisplayName, "
+                 "StartMode, State, PathName | ConvertTo-Json -Depth 2"],
+                capture_output=True, text=True, timeout=45,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            if result.returncode != 0 or not (result.stdout or "").strip():
+                return apps
+            data = json.loads(result.stdout)
+            if isinstance(data, dict):
+                data = [data]
+            for svc in data:
+                if self._cancelled:
+                    break
+                name = str(svc.get("DisplayName") or svc.get("Name") or "").strip()
+                short = str(svc.get("Name") or "").strip()
+                if not name:
+                    continue
+                norm = self._normalize_name(name)
+                if norm in self.seen_apps:
+                    continue
+                self.seen_apps.add(norm)
+                start_mode = str(svc.get("StartMode") or "").strip()
+                state = str(svc.get("State") or "").strip()
+                apps.append(Application(
+                    name=name,
+                    executable_path=str(svc.get("PathName") or "").strip().strip('"'),
+                    uninstall_command=f'Set-Service -Name "{short}" -StartupType Disabled',
+                    source="Service",
+                    app_type="Service",
+                    architecture=start_mode,
+                    consistency_status=state,
+                    winget_id=short,
+                ))
+        except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.SubprocessError,
+                json.JSONDecodeError, OSError) as e:
+            self._log_warning(f"Service scan failed: {e}")
+        return apps
+
+    def scan_scheduled_tasks(self) -> List[Application]:
+        """Scan enabled scheduled tasks (folded in from SoftwareScannerGUI)."""
+        apps: List[Application] = []
+        self._update_status("Scanning scheduled tasks...")
+        try:
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 "Get-ScheduledTask | Where-Object {$_.State -ne 'Disabled'} | "
+                 "Select-Object TaskName, TaskPath, State, "
+                 "@{Name='Author';Expression={$_.Author}} | ConvertTo-Json -Depth 2"],
+                capture_output=True, text=True, timeout=45,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            if result.returncode != 0 or not (result.stdout or "").strip():
+                return apps
+            data = json.loads(result.stdout)
+            if isinstance(data, dict):
+                data = [data]
+            for task in data:
+                if self._cancelled:
+                    break
+                task_name = str(task.get("TaskName") or "").strip()
+                task_path = str(task.get("TaskPath") or "").strip()
+                if not task_name:
+                    continue
+                # Skip Microsoft's own maintenance tasks — noise for debloat work.
+                if task_path.startswith("\\Microsoft\\Windows\\"):
+                    continue
+                full = f"{task_path}{task_name}"
+                norm = self._normalize_name(full)
+                if norm in self.seen_apps:
+                    continue
+                self.seen_apps.add(norm)
+                apps.append(Application(
+                    name=task_name,
+                    publisher=str(task.get("Author") or "").strip(),
+                    install_location=task_path,
+                    uninstall_command=f'Disable-ScheduledTask -TaskName "{task_name}" -TaskPath "{task_path}"',
+                    source="Scheduled Task",
+                    app_type="Scheduled Task",
+                    consistency_status=str(task.get("State") or "").strip(),
+                ))
+        except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.SubprocessError,
+                json.JSONDecodeError, OSError) as e:
+            self._log_warning(f"Scheduled task scan failed: {e}")
+        return apps
+
+    def scan_provisioned_packages(self) -> List[Application]:
+        """Scan AppX provisioned packages that reinstall for new users.
+
+        Folded in from SoftwareScannerGUI — this is the key debloat surface
+        that AppList's per-user Store scan misses. Requires administrator
+        rights; degrades gracefully to an empty list otherwise.
+        """
+        apps: List[Application] = []
+        self._update_status("Scanning provisioned packages...")
+        try:
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 "Get-AppxProvisionedPackage -Online | Select-Object DisplayName, "
+                 "PublisherId, Version, PackageName | ConvertTo-Json -Depth 2"],
+                capture_output=True, text=True, timeout=60,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            if result.returncode != 0 or not (result.stdout or "").strip():
+                if "elevat" in (result.stderr or "").lower() or "administrator" in (result.stderr or "").lower():
+                    self._log_warning("Provisioned package scan needs administrator rights; skipped.")
+                return apps
+            data = json.loads(result.stdout)
+            if isinstance(data, dict):
+                data = [data]
+            for pkg in data:
+                if self._cancelled:
+                    break
+                display = str(pkg.get("DisplayName") or "").strip()
+                package_name = str(pkg.get("PackageName") or "").strip()
+                if not display:
+                    continue
+                if any(x in display.lower() for x in (".net", "vclibs", "framework", "microsoft.ui")):
+                    continue
+                norm = self._normalize_name(f"provisioned{display}")
+                if norm in self.seen_apps:
+                    continue
+                self.seen_apps.add(norm)
+                apps.append(Application(
+                    name=f"[Provisioned] {display}",
+                    version=str(pkg.get("Version") or "").strip(),
+                    uninstall_command=f'Remove-AppxProvisionedPackage -Online -PackageName "{package_name}"',
+                    source="Provisioned Package",
+                    architecture="UWP",
+                    app_type="Provisioned Package",
+                ))
+        except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.SubprocessError,
+                json.JSONDecodeError, OSError) as e:
+            self._log_warning(f"Provisioned package scan failed: {e}")
+        return apps
+
+    def _apply_startup_impact(self):
+        """Rate Startup items High/Low impact (folded in from SoftwareScannerGUI)."""
+        for app in self.applications:
+            if app.app_type != "Startup":
+                continue
+            haystack = self._normalize_name(f"{app.name}{app.uninstall_command}{app.executable_path}")
+            app.startup_impact = "High" if any(h in haystack for h in STARTUP_HIGH_IMPACT) else "Low"
 
     def _apply_pinned_locations(self):
         """Detect Start Menu and Taskbar pinned items and annotate matching apps."""
@@ -1771,6 +1926,33 @@ class ApplicationScanner:
         if self._cancelled:
             return self.applications
 
+        add_source(
+            "services",
+            "Services",
+            "Scanning Windows services...",
+            self.scan_services,
+        )
+        if self._cancelled:
+            return self.applications
+
+        add_source(
+            "scheduled_tasks",
+            "Scheduled Tasks",
+            "Scanning scheduled tasks...",
+            self.scan_scheduled_tasks,
+        )
+        if self._cancelled:
+            return self.applications
+
+        add_source(
+            "provisioned",
+            "Provisioned Packages",
+            "Scanning provisioned packages...",
+            self.scan_provisioned_packages,
+        )
+        if self._cancelled:
+            return self.applications
+
         # Cross-reference with winget for package IDs and upgrade status
         def scan_winget_cross_reference() -> List[Application]:
             raw_packages = self._run_winget_client_packages()
@@ -1870,6 +2052,7 @@ class ApplicationScanner:
 
         self._apply_bloatware_flags()
         self._apply_pinned_locations()
+        self._apply_startup_impact()
 
         # Sort by name
         self.applications.sort(key=lambda x: x.name.lower())

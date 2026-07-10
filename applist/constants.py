@@ -67,6 +67,9 @@ CANONICAL_SCAN_SOURCES = {
     "drivers",
     "features",
     "wsl",
+    "services",
+    "scheduled_tasks",
+    "provisioned",
 }
 
 SCAN_SOURCE_ALIASES = {
@@ -91,6 +94,17 @@ SCAN_SOURCE_ALIASES = {
     "drivers": {"drivers"},
     "features": {"features"},
     "wsl": {"wsl"},
+    "services": {"services"},
+    "service": {"services"},
+    "scheduled_tasks": {"scheduled_tasks"},
+    "scheduled-tasks": {"scheduled_tasks"},
+    "scheduledtasks": {"scheduled_tasks"},
+    "tasks": {"scheduled_tasks"},
+    "provisioned": {"provisioned"},
+    "provisioned_packages": {"provisioned"},
+    "appxprovisioned": {"provisioned"},
+    # debloat-focused bundle mirroring SoftwareScannerGUI's default surface
+    "debloat": {"store", "provisioned", "services", "scheduled_tasks", "startup"},
 }
 
 TYPE_FILTERS = [
@@ -107,7 +121,22 @@ TYPE_FILTERS = [
     "Windows Feature",
     "WSL Distro",
     "Winget",
+    "Service",
+    "Scheduled Task",
+    "Provisioned Package",
 ]
+
+# Known heavy startup entries (folded in from SoftwareScannerGUI's impact rating).
+# Matched as substrings against the normalized startup entry name/command.
+STARTUP_HIGH_IMPACT = {
+    "teams", "onedrive", "dropbox", "googledrive", "backupandsync", "steam",
+    "epicgames", "epicgameslauncher", "discord", "slack", "spotify", "skype",
+    "zoom", "adobe", "acrobat", "creativecloud", "ccxprocess", "nvidia",
+    "igfxtray", "realtek", "razer", "logitech", "logi", "corsair", "icue",
+    "asus", "armourycrate", "java", "javaupdate", "quicktime", "itunes",
+    "utorrent", "qbittorrent", "epicwebhelper", "wondershare", "ccleaner",
+    "malwarebytes", "mcafee", "norton", "avast", "avg",
+}
 
 SOURCE_FILTERS = [
     "All Sources",

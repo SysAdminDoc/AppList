@@ -42,6 +42,7 @@ class Application:
     consistency_status: str = ""
     measured_size: str = ""
     bloatware: str = ""
+    startup_impact: str = ""  # "High"/"Low" for Startup items (folded in from SoftwareScannerGUI)
 
     def to_dict(self) -> Dict[str, str]:
         return asdict(self)
@@ -69,4 +70,5 @@ class Application:
             self.consistency_status,
             self.measured_size,
             self.bloatware,
+            self.startup_impact,
         ]

@@ -1,6 +1,6 @@
 # AppList
 
-![Version](https://img.shields.io/badge/version-v1.8.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
+![Version](https://img.shields.io/badge/version-v1.9.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
 
 A Windows application inventory tool for scanning, cataloging, comparing, and exporting installed software before migrations, rebuilds, audits, and reinstall planning.
 
@@ -18,7 +18,10 @@ A Windows application inventory tool for scanning, cataloging, comparing, and ex
 - SHA-256 hashing of discovered executables with cached VirusTotal report links
 - Per-source scan diagnostics for skipped, warning, and failed inventory phases
 - Package-manager consistency audit for Chocolatey/Scoop rows without local app evidence
-- Startup-item scanner for registry Run keys and Startup folders
+- Startup-item scanner for registry Run keys and Startup folders, with High/Low impact rating
+- Windows services inventory (with a safe disable command per service)
+- Scheduled-task inventory (non-Microsoft, non-disabled tasks)
+- AppX provisioned-package scan — the system-wide debloat surface that reinstalls for new users (needs admin)
 - Portable-app detection across user-local tools directories
 - Driver inventory via pnputil
 - Windows optional feature inventory
@@ -61,6 +64,7 @@ A Windows application inventory tool for scanning, cataloging, comparing, and ex
 - Chocolatey `packages.config`
 - Restore bundle ZIP with inventory, restore files, commands, and unmatched report
 - PowerShell install script with winget/pip/choco/scoop one-liners
+- PowerShell **removal/disable** script with a per-source uninstall method (registry uninstall string, `Remove-AppxPackage`, `Remove-AppxProvisionedPackage`, `Set-Service … Disabled`, `Disable-ScheduledTask`, `choco/scoop/pip uninstall`, `winget uninstall`). Ships as a **dry run by default** (`$DryRun = $true`) so nothing is removed until you review and arm it
 - Privacy-safe redacted exports via `--redact` flag
 - Intune-style compliance report via `--compliance` flag
 
@@ -104,6 +108,8 @@ python AppList.py --export pip --output requirements.txt --include pip
 python AppList.py --export choco --output packages.config --include choco
 python AppList.py --export bundle --output restore-bundle.zip
 python AppList.py --export ps1 --output install.ps1
+python AppList.py --export removal --output removal.ps1 --include debloat
+python AppList.py --export csv --output debloat.csv --include services,scheduled_tasks,provisioned
 python AppList.py --diff old_snapshot.json new_snapshot.json
 python AppList.py --diff old.json new.json -o report.json
 python AppList.py --validate-bundle restore-bundle.zip
@@ -172,4 +178,4 @@ MIT License - Free for personal and commercial use.
 
 ---
 
-*AppList v1.8.0*
+*AppList v1.9.0*

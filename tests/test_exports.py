@@ -18,6 +18,7 @@ from applist.exports import (
     write_markdown_export,
     write_pip_requirements_export,
     write_powershell_export,
+    write_removal_script_export,
     write_restore_bundle_export,
     write_txt_export,
 )
@@ -403,6 +404,49 @@ class ExportTests(unittest.TestCase):
             content = path.read_text(encoding="utf-8")
             self.assertEqual(count, 1)
             self.assertIn("'pkg$(evil)'", content)
+
+    # ── Removal script (folded in from SoftwareScannerGUI) ──────────────────
+
+    def test_removal_script_covers_each_source_and_defaults_to_dry_run(self):
+        apps = [
+            Application(name="[Provisioned] Xbox", app_type="Provisioned Package",
+                        uninstall_command='Remove-AppxProvisionedPackage -Online -PackageName "Xbox_1"'),
+            Application(name="Fabrikam Updater", app_type="Service",
+                        uninstall_command='Set-Service -Name "Fabrikam" -StartupType Disabled'),
+            Application(name="FabrikamTask", app_type="Scheduled Task",
+                        uninstall_command='Disable-ScheduledTask -TaskName "FabrikamTask" -TaskPath "\\"'),
+            Application(name="somepkg", app_type="Chocolatey"),
+            Application(name="Notepad++", app_type="Desktop", winget_id="Notepad++.Notepad++"),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "removal.ps1"
+            count = write_removal_script_export(apps, str(path))
+            content = path.read_text(encoding="utf-8")
+        self.assertEqual(count, 5)
+        self.assertIn("$DryRun = $true", content)
+        self.assertIn("#Requires -RunAsAdministrator", content)
+        self.assertIn("Remove-AppxProvisionedPackage", content)
+        self.assertIn("Set-Service", content)
+        self.assertIn("Disable-ScheduledTask", content)
+        self.assertIn("choco uninstall", content)
+        self.assertIn("winget uninstall --id Notepad++.Notepad++", content)
+
+    def test_removal_script_raises_when_nothing_removable(self):
+        apps = [Application(name="Mystery", app_type="Windows Feature")]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "removal.ps1"
+            with self.assertRaises(ValueError):
+                write_removal_script_export(apps, str(path))
+
+    def test_csv_export_includes_startup_impact_column(self):
+        apps = [Application(name="OneDrive", app_type="Startup", startup_impact="High")]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "apps.csv"
+            write_csv_export(apps, str(path))
+            with open(path, newline="", encoding="utf-8-sig") as f:
+                rows = list(csv.reader(f))
+        self.assertEqual(rows[0][-1], "Startup Impact")
+        self.assertEqual(rows[1][-1], "High")
 
 
 if __name__ == "__main__":

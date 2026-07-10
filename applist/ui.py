@@ -34,6 +34,7 @@ from .exports import (
     write_pip_requirements_export,
     write_choco_export,
     write_powershell_export,
+    write_removal_script_export,
     write_restore_bundle_export,
     diff_json_snapshots,
     write_diff_report,
@@ -226,6 +227,7 @@ class AppListWindow(ctk.CTk):
             "type", "source", "upgrade_available", "pin_status", "winget_id",
             "sha256_hash", "virustotal", "consistency", "size", "architecture",
             "install_location", "registry_key", "measured_size", "bloatware",
+            "startup_impact",
         )
         self._default_visible = {
             "name", "publisher", "version", "install_date", "type", "source",
@@ -640,6 +642,9 @@ class AppListWindow(ctk.CTk):
         self.export_ps1_btn = SecondaryButton(export_frame, text="PS1", width=54, command=self._export_ps1)
         self.export_ps1_btn.pack(side="left", padx=(0, 6))
 
+        self.export_removal_btn = SecondaryButton(export_frame, text="Removal", width=84, command=self._export_removal)
+        self.export_removal_btn.pack(side="left", padx=(0, 6))
+
         self.export_bundle_btn = SecondaryButton(export_frame, text="Bundle", width=84, command=self._export_bundle)
         self.export_bundle_btn.pack(side="left", padx=(0, 6))
 
@@ -672,6 +677,7 @@ class AppListWindow(ctk.CTk):
             "type", "source", "upgrade_available", "pin_status", "winget_id",
             "sha256_hash", "virustotal", "consistency", "size", "architecture",
             "install_location", "registry_key", "measured_size", "bloatware",
+            "startup_impact",
         )
 
         # Create treeview with scrollbar
@@ -720,6 +726,7 @@ class AppListWindow(ctk.CTk):
             "registry_key": ("Registry Key", 320),
             "measured_size": ("Measured Size", 110),
             "bloatware": ("Bloatware", 140),
+            "startup_impact": ("Startup Impact", 120),
         }
 
         for col, (heading, width) in column_config.items():
@@ -846,7 +853,8 @@ class AppListWindow(ctk.CTk):
             self.export_txt_btn, self.export_csv_btn, self.export_md_btn,
             self.export_json_btn, self.export_winget_btn, self.export_html_btn,
             self.export_pip_btn, self.export_choco_btn, self.export_ps1_btn,
-            self.export_bundle_btn, self.baseline_btn, self.compare_btn,
+            self.export_removal_btn, self.export_bundle_btn,
+            self.baseline_btn, self.compare_btn,
         ):
             button.configure(state=state)
 
@@ -1138,7 +1146,7 @@ class AppListWindow(ctk.CTk):
             app.consistency_status,
             app.estimated_size, app.architecture,
             app.install_location, app.uninstall_registry_key,
-            app.measured_size, app.bloatware,
+            app.measured_size, app.bloatware, app.startup_impact,
         )
         return values, row_tags
 
@@ -1297,6 +1305,7 @@ class AppListWindow(ctk.CTk):
             "pin_status": "pin_status", "sha256_hash": "sha256_hash",
             "virustotal": "virustotal_url", "consistency": "consistency_status",
             "measured_size": "measured_size", "bloatware": "bloatware",
+            "startup_impact": "startup_impact",
         }
         attr = attr_map.get(self.sort_column, "name")
         self.filtered_apps.sort(key=lambda x: str(getattr(x, attr, "")).lower(), reverse=self.sort_reverse)
@@ -1512,6 +1521,29 @@ class AppListWindow(ctk.CTk):
                 f"Exported {count} install commands to:\n{filepath}")
         except (OSError, ValueError) as e:
             self._update_status("PowerShell export failed.")
+            messagebox.showerror("Export Error", f"Failed to export:\n{e}")
+
+    def _export_removal(self):
+        if not self._ensure_exportable_rows():
+            return
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".ps1",
+            filetypes=[("PowerShell Scripts", "*.ps1"), ("All Files", "*.*")],
+            initialfile=f"AppList_Removal_{timestamp}.ps1",
+            title="Export Removal / Disable Script",
+        )
+        if not filepath:
+            return
+        try:
+            count = write_removal_script_export(self.filtered_apps, filepath)
+            self._update_status(f"Exported {count} removal commands to PS1 (dry-run).")
+            messagebox.showinfo("Export Complete",
+                f"Exported {count} removal/disable commands to:\n{filepath}\n\n"
+                "The script is a DRY RUN by default — review it, then set "
+                "$DryRun = $false to arm it.")
+        except (OSError, ValueError) as e:
+            self._update_status("Removal export failed.")
             messagebox.showerror("Export Error", f"Failed to export:\n{e}")
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -1798,6 +1830,7 @@ class AppListWindow(ctk.CTk):
             "pin_status": 120, "winget_id": 200, "sha256_hash": 240, "virustotal": 105,
             "consistency": 170, "size": 90, "architecture": 80, "install_location": 280,
             "registry_key": 320, "measured_size": 110, "bloatware": 140,
+            "startup_impact": 120,
         }
         for col in self._all_columns:
             if col in self._visible_columns:
@@ -1821,6 +1854,7 @@ class AppListWindow(ctk.CTk):
             "consistency": "Consistency", "size": "Size", "architecture": "Arch",
             "install_location": "Location", "registry_key": "Registry Key",
             "measured_size": "Measured Size", "bloatware": "Bloatware",
+            "startup_impact": "Startup Impact",
         }
 
         check_vars = {}
