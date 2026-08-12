@@ -9,6 +9,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import threading
 import winreg
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -44,10 +45,38 @@ HASH_SKIP_EXECUTABLE_PARTS = (
 )
 DIRECTORY_SIZE_MAX_FILES = 100_000
 DIRECTORY_SIZE_MAX_SECONDS = 2.0
+COMMAND_STDOUT_LIMIT = 8 * 1024 * 1024
+COMMAND_STDERR_LIMIT = 64 * 1024
+COMMAND_POLL_SECONDS = 0.05
+
+
+class ScanCommandCancelled(subprocess.SubprocessError):
+    """Raised when a collector command is stopped by the user."""
 
 
 class ApplicationScanner:
     """Core engine for scanning installed applications from multiple sources."""
+
+    SCAN_STAGES = (
+        "Windows Registry",
+        "Microsoft Store",
+        "Program Files",
+        "Chocolatey",
+        "Scoop",
+        "Python (pip)",
+        "Startup Items",
+        "Portable Apps",
+        "Drivers",
+        "Windows Features",
+        "WSL Distros",
+        "Services",
+        "Scheduled Tasks",
+        "Provisioned Packages",
+        "winget",
+        "Last-used activity",
+        "Executable hashing",
+        "Directory size measurement",
+    )
 
     def __init__(self, progress_callback=None, status_callback=None):
         self.progress_callback = progress_callback
@@ -60,6 +89,8 @@ class ApplicationScanner:
         self.seen_apps: set = set()
         self._cancelled = False
         self._active_diagnostic: Optional[ScanDiagnostic] = None
+        self._scan_stage_total = len(self.SCAN_STAGES)
+        self._scan_stage_index = 0
 
     def cancel(self):
         """Cancel the scanning operation."""
@@ -77,6 +108,143 @@ class ApplicationScanner:
         if self._active_diagnostic is not None:
             self._active_diagnostic.warnings.append(message)
         print(f"Warning: {message}", file=sys.stderr)
+
+    @staticmethod
+    def _decode_command_output(value) -> str:
+        """Decode command bytes with Windows-friendly encoding fallbacks."""
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        if not value:
+            return ""
+
+        candidates = ["utf-8"]
+        if value.startswith(codecs.BOM_UTF16_LE) or b"\x00" in value[:256]:
+            candidates.insert(0, "utf-16-le")
+        candidates.extend(["utf-16", "cp1252", "mbcs"])
+        for encoding in candidates:
+            try:
+                return value.decode(encoding)
+            except (LookupError, UnicodeDecodeError):
+                continue
+        return value.decode("utf-8", errors="replace")
+
+    def _run_command(
+        self,
+        command: List[str],
+        *,
+        timeout: float,
+        label: str = "",
+        check: bool = False,
+    ) -> subprocess.CompletedProcess:
+        """Run one bounded, cancellable Windows command without a shell."""
+        if self._cancelled:
+            raise ScanCommandCancelled("Scan cancelled before command start")
+        if not command:
+            raise ValueError("Command cannot be empty")
+
+        arguments = [str(argument) for argument in command]
+        executable = arguments[0]
+        if not os.path.dirname(executable):
+            executable = shutil.which(executable) or executable
+        if not os.path.isfile(executable) and not shutil.which(executable):
+            raise FileNotFoundError(f"Executable not found: {arguments[0]}")
+        arguments[0] = executable
+
+        stdout_buffer = bytearray()
+        stderr_buffer = bytearray()
+
+        def drain(stream, buffer: bytearray, limit: int):
+            try:
+                while True:
+                    chunk = stream.read(4096)
+                    if not chunk:
+                        break
+                    if len(buffer) < limit:
+                        buffer.extend(chunk[: limit - len(buffer)])
+            except (OSError, ValueError):
+                return
+
+        process = subprocess.Popen(
+            arguments,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            shell=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        stdout_thread = threading.Thread(
+            target=drain,
+            args=(process.stdout, stdout_buffer, COMMAND_STDOUT_LIMIT),
+            daemon=True,
+        )
+        stderr_thread = threading.Thread(
+            target=drain,
+            args=(process.stderr, stderr_buffer, COMMAND_STDERR_LIMIT),
+            daemon=True,
+        )
+        stdout_thread.start()
+        stderr_thread.start()
+
+        started = monotonic()
+        cancelled = False
+        timed_out = False
+        try:
+            while True:
+                if self._cancelled:
+                    cancelled = True
+                    process.kill()
+                    break
+                remaining = timeout - (monotonic() - started)
+                if remaining <= 0:
+                    timed_out = True
+                    process.kill()
+                    break
+                try:
+                    process.wait(timeout=min(remaining, COMMAND_POLL_SECONDS))
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+            stdout_thread.join(timeout=1)
+            stderr_thread.join(timeout=1)
+            if process.stdout is not None:
+                process.stdout.close()
+            if process.stderr is not None:
+                process.stderr.close()
+
+        if cancelled:
+            raise ScanCommandCancelled(f"Scan cancelled while running {arguments[0]}")
+        if timed_out:
+            raise subprocess.TimeoutExpired(arguments, timeout)
+
+        result = subprocess.CompletedProcess(
+            arguments,
+            process.returncode,
+            self._decode_command_output(bytes(stdout_buffer)),
+            self._decode_command_output(bytes(stderr_buffer)),
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or "").strip() or "no stderr output"
+            self._log_warning(
+                f"{label or arguments[0]} exited with code {result.returncode}: {detail}"
+            )
+            if check:
+                raise subprocess.CalledProcessError(
+                    result.returncode,
+                    arguments,
+                    output=result.stdout,
+                    stderr=result.stderr,
+                )
+        return result
+
+    def _next_stage(self, label: str) -> str:
+        self._scan_stage_index += 1
+        return f"Phase {self._scan_stage_index}/{self._scan_stage_total}: {label}"
 
     def _record_skipped_source(self, source: str):
         self.scan_diagnostics.append(ScanDiagnostic(source=source, status="skipped"))
@@ -288,12 +456,12 @@ class ApplicationScanner:
         apps: List[Application] = []
         self._update_status("Scanning Windows optional features...")
         try:
-            result = subprocess.run(
+            result = self._run_command(
                 ["powershell", "-NoProfile", "-Command",
                  "Get-WindowsOptionalFeature -Online | Where-Object {$_.State -eq 'Enabled'} | "
                  "Select-Object FeatureName | ConvertTo-Json"],
-                capture_output=True, text=True, timeout=30,
-                creationflags=subprocess.CREATE_NO_WINDOW,
+                timeout=30,
+                label="Windows optional features",
             )
             if result.returncode != 0 or not (result.stdout or "").strip():
                 return apps
@@ -323,10 +491,10 @@ class ApplicationScanner:
         apps: List[Application] = []
         self._update_status("Scanning installed drivers...")
         try:
-            result = subprocess.run(
+            result = self._run_command(
                 ["pnputil", "/enum-drivers"],
-                capture_output=True, text=True, timeout=30,
-                creationflags=subprocess.CREATE_NO_WINDOW,
+                timeout=30,
+                label="Driver inventory",
             )
             if result.returncode != 0 or not (result.stdout or "").strip():
                 return apps
@@ -386,12 +554,16 @@ class ApplicationScanner:
         apps: List[Application] = []
         self._update_status("Scanning WSL distributions...")
         try:
-            result = subprocess.run(
+            result = self._run_command(
                 ["wsl", "--list", "--verbose"],
-                capture_output=True, timeout=15,
-                creationflags=subprocess.CREATE_NO_WINDOW,
+                timeout=15,
+                label="WSL inventory",
             )
-            output = result.stdout.decode("utf-16-le", errors="replace") if result.stdout else ""
+            output = (
+                result.stdout
+                if isinstance(result.stdout, str)
+                else self._decode_command_output(result.stdout)
+            )
             if result.returncode != 0 or not output.strip():
                 return apps
 
@@ -427,12 +599,12 @@ class ApplicationScanner:
         apps: List[Application] = []
         self._update_status("Scanning Windows services...")
         try:
-            result = subprocess.run(
+            result = self._run_command(
                 ["powershell", "-NoProfile", "-Command",
                  "Get-CimInstance Win32_Service | Select-Object Name, DisplayName, "
                  "StartMode, State, PathName | ConvertTo-Json -Depth 2"],
-                capture_output=True, text=True, timeout=45,
-                creationflags=subprocess.CREATE_NO_WINDOW,
+                timeout=45,
+                label="Windows services",
             )
             if result.returncode != 0 or not (result.stdout or "").strip():
                 return apps
@@ -472,13 +644,13 @@ class ApplicationScanner:
         apps: List[Application] = []
         self._update_status("Scanning scheduled tasks...")
         try:
-            result = subprocess.run(
+            result = self._run_command(
                 ["powershell", "-NoProfile", "-Command",
                  "Get-ScheduledTask | Where-Object {$_.State -ne 'Disabled'} | "
                  "Select-Object TaskName, TaskPath, State, "
                  "@{Name='Author';Expression={$_.Author}} | ConvertTo-Json -Depth 2"],
-                capture_output=True, text=True, timeout=45,
-                creationflags=subprocess.CREATE_NO_WINDOW,
+                timeout=45,
+                label="Scheduled tasks",
             )
             if result.returncode != 0 or not (result.stdout or "").strip():
                 return apps
@@ -524,12 +696,12 @@ class ApplicationScanner:
         apps: List[Application] = []
         self._update_status("Scanning provisioned packages...")
         try:
-            result = subprocess.run(
+            result = self._run_command(
                 ["powershell", "-NoProfile", "-Command",
                  "Get-AppxProvisionedPackage -Online | Select-Object DisplayName, "
                  "PublisherId, Version, PackageName | ConvertTo-Json -Depth 2"],
-                capture_output=True, text=True, timeout=60,
-                creationflags=subprocess.CREATE_NO_WINDOW,
+                timeout=60,
+                label="Provisioned packages",
             )
             if result.returncode != 0 or not (result.stdout or "").strip():
                 if "elevat" in (result.stderr or "").lower() or "administrator" in (result.stderr or "").lower():
@@ -857,7 +1029,7 @@ class ApplicationScanner:
         if not self.applications:
             return
 
-        self._update_status("Phase 8/9: Reading last-used activity...")
+        self._update_status("Reading last-used activity...")
         self._update_progress(84)
 
         userassist_map = self._build_userassist_last_used_map()
@@ -1015,7 +1187,7 @@ class ApplicationScanner:
         if not self.applications:
             return
 
-        self._update_status("Phase 9/9: Hashing executable files...")
+        self._update_status("Hashing executable files...")
         self._update_progress(92)
 
         cache = self._load_hash_cache()
@@ -1180,12 +1352,10 @@ class ApplicationScanner:
                 "Get-AppxPackage | Select-Object Name, Publisher, Version, InstallLocation, PackageFullName | ConvertTo-Json"
             ]
 
-            result = subprocess.run(
+            result = self._run_command(
                 cmd,
-                capture_output=True,
-                text=True,
                 timeout=60,
-                creationflags=subprocess.CREATE_NO_WINDOW
+                label="Microsoft Store",
             )
 
             if result.returncode == 0 and result.stdout.strip():
@@ -1488,10 +1658,10 @@ class ApplicationScanner:
             return apps
 
         try:
-            result = subprocess.run(
+            result = self._run_command(
                 [interpreter, "-m", "pip", "list", "--format=json"],
-                capture_output=True, text=True, timeout=30,
-                creationflags=subprocess.CREATE_NO_WINDOW,
+                timeout=30,
+                label="pip package inventory",
             )
             if result.returncode != 0:
                 return apps
@@ -1526,11 +1696,11 @@ class ApplicationScanner:
         self._update_progress(73)
         try:
             # Try JSON output (winget 1.6+)
-            result = subprocess.run(
+            result = self._run_command(
                 ["winget", "list", "--accept-source-agreements",
                  "--disable-interactivity", "--output", "json"],
-                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90,
-                creationflags=subprocess.CREATE_NO_WINDOW,
+                timeout=90,
+                label="winget structured list",
             )
             packages: List[Dict[str, str]] = []
             output = result.stdout or ""
@@ -1539,11 +1709,11 @@ class ApplicationScanner:
 
             # Fall back to tabular text parsing
             if not packages:
-                result = subprocess.run(
+                result = self._run_command(
                     ["winget", "list", "--accept-source-agreements",
                      "--disable-interactivity"],
-                    capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90,
-                    creationflags=subprocess.CREATE_NO_WINDOW,
+                    timeout=90,
+                    label="winget text list",
                 )
                 output = result.stdout or ""
                 if result.returncode == 0:
@@ -1618,10 +1788,10 @@ class ApplicationScanner:
             "ConvertTo-Json -Depth 4"
         )
         try:
-            result = subprocess.run(
+            result = self._run_command(
                 ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
-                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
-                creationflags=subprocess.CREATE_NO_WINDOW,
+                timeout=120,
+                label="Microsoft.WinGet.Client",
             )
             output = result.stdout or ""
             if result.returncode != 0 or not output.strip():
@@ -1740,11 +1910,11 @@ class ApplicationScanner:
         upgrade_map: Dict[str, str] = {}
         self._update_progress(75)
         try:
-            result = subprocess.run(
+            result = self._run_command(
                 ["winget", "upgrade", "--accept-source-agreements",
                  "--disable-interactivity", "--output", "json"],
-                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
-                creationflags=subprocess.CREATE_NO_WINDOW,
+                timeout=60,
+                label="winget upgrade list",
             )
             output = result.stdout or ""
             if result.returncode == 0 and output.strip():
@@ -1766,11 +1936,11 @@ class ApplicationScanner:
         """Build a winget_id -> pin description map via winget pin list."""
         pin_map: Dict[str, str] = {}
         try:
-            result = subprocess.run(
+            result = self._run_command(
                 ["winget", "pin", "list", "--accept-source-agreements",
                  "--disable-interactivity"],
-                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
-                creationflags=subprocess.CREATE_NO_WINDOW,
+                timeout=30,
+                label="winget pin list",
             )
             if result.returncode != 0:
                 return pin_map
@@ -1843,27 +2013,31 @@ class ApplicationScanner:
         self.scan_diagnostics = []
         self.seen_apps = set()
         self._active_diagnostic = None
+        self._scan_stage_total = len(self.SCAN_STAGES)
+        self._scan_stage_index = 0
 
         def source_enabled(source: str) -> bool:
             return include_sources is None or source in include_sources
 
-        def add_source(source_key: str, source_name: str, status: str, scanner: Callable[[], List[Application]]):
+        def add_source(source_key: str, source_name: str, label: str, scanner: Callable[[], List[Application]]):
+            stage_status = self._next_stage(label)
             if source_enabled(source_key):
                 # Each collector owns its own duplicate namespace. Keeping
                 # this set global caused a source scanned earlier to hide a
                 # same-name application from a later source.
                 self.seen_apps = set()
-                self._update_status(status)
+                self._update_status(stage_status)
                 rows = self._run_diagnostic_step(source_name, scanner)
                 self.applications.extend(rows)
                 return
+            self._update_status(f"{stage_status} (skipped)")
             self._record_skipped_source(source_name)
 
         # Scan registry (primary source)
         add_source(
             "registry",
             "Windows Registry",
-            "Phase 1/9: Scanning Windows Registry...",
+            "Scanning Windows Registry...",
             self.scan_registry,
         )
         if self._cancelled:
@@ -1873,7 +2047,7 @@ class ApplicationScanner:
         add_source(
             "store",
             "Microsoft Store",
-            "Phase 2/9: Scanning Microsoft Store apps...",
+            "Scanning Microsoft Store apps...",
             self.scan_store_apps,
         )
         if self._cancelled:
@@ -1883,7 +2057,7 @@ class ApplicationScanner:
         add_source(
             "program_files",
             "Program Files",
-            "Phase 3/9: Scanning Program Files...",
+            "Scanning Program Files...",
             self.scan_program_files,
         )
         if self._cancelled:
@@ -1893,7 +2067,7 @@ class ApplicationScanner:
         add_source(
             "chocolatey",
             "Chocolatey",
-            "Phase 4/9: Scanning Chocolatey packages...",
+            "Scanning Chocolatey packages...",
             self.scan_chocolatey,
         )
         if self._cancelled:
@@ -1903,7 +2077,7 @@ class ApplicationScanner:
         add_source(
             "scoop",
             "Scoop",
-            "Phase 5/9: Scanning Scoop packages...",
+            "Scanning Scoop packages...",
             self.scan_scoop,
         )
         if self._cancelled:
@@ -1913,7 +2087,7 @@ class ApplicationScanner:
         add_source(
             "pip",
             "Python (pip)",
-            "Phase 6/9: Scanning Python (pip) packages...",
+            "Scanning Python (pip) packages...",
             self.scan_pip,
         )
         if self._cancelled:
@@ -2049,13 +2223,16 @@ class ApplicationScanner:
 
             return [app for app in self.applications if app.winget_id]
 
+        winget_stage = self._next_stage("Cross-referencing with winget...")
         if skip_network:
+            self._update_status(f"{winget_stage} (skipped)")
             self._record_skipped_source("winget")
         elif source_enabled("winget"):
             self.seen_apps = set()
-            self._update_status("Phase 7/9: Cross-referencing with winget...")
+            self._update_status(winget_stage)
             self._run_diagnostic_step("winget", scan_winget_cross_reference)
         else:
+            self._update_status(f"{winget_stage} (skipped)")
             self._record_skipped_source("winget")
 
         def scan_last_used() -> List[Application]:
@@ -2066,14 +2243,20 @@ class ApplicationScanner:
             self._apply_virustotal_hashes()
             return [app for app in self.applications if app.sha256_hash]
 
+        last_used_stage = self._next_stage("Reading last-used activity...")
         if skip_last_used:
+            self._update_status(f"{last_used_stage} (skipped)")
             self._record_skipped_source("Last-used activity")
         else:
+            self._update_status(last_used_stage)
             self._run_diagnostic_step("Last-used activity", scan_last_used)
 
+        hashing_stage = self._next_stage("Hashing executable files...")
         if skip_hashing:
+            self._update_status(f"{hashing_stage} (skipped)")
             self._record_skipped_source("Executable hashing")
         else:
+            self._update_status(hashing_stage)
             self._run_diagnostic_step("Executable hashing", scan_virustotal_hashes)
 
         # Ghost entry detection: flag apps whose install location doesn't exist
@@ -2087,6 +2270,8 @@ class ApplicationScanner:
             self._apply_measured_sizes()
             return [app for app in self.applications if app.measured_size]
 
+        size_stage = self._next_stage("Measuring installed directory sizes...")
+        self._update_status(size_stage)
         self._run_diagnostic_step("Directory size measurement", measure_sizes)
 
         self._apply_bloatware_flags()

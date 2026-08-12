@@ -17,6 +17,7 @@ A Windows application inventory tool for scanning, cataloging, comparing, and ex
 - Last-used date enrichment from UserAssist and Windows Prefetch evidence when accessible
 - SHA-256 hashing of discovered executables with cached VirusTotal report links
 - Per-source scan diagnostics for skipped, warning, and failed inventory phases
+- Centralized command execution with cancellation, timeouts, encoding fallbacks, bounded stderr, and accurate scan-stage progress
 - Package-manager consistency audit for Chocolatey/Scoop rows without local app evidence
 - Startup-item scanner for registry Run keys and Startup folders, with High/Low impact rating
 - Windows services inventory (with a safe disable command per service)

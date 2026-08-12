@@ -1,5 +1,6 @@
 import json
 import hashlib
+import io
 import struct
 import tempfile
 import unittest
@@ -59,6 +60,45 @@ class ScannerTests(unittest.TestCase):
     def _filetime(self, value: datetime) -> int:
         return int((value - scanner_module.FILETIME_EPOCH).total_seconds() * 10_000_000)
 
+    def test_command_runner_decodes_output_and_disables_shell(self):
+        scanner = ApplicationScanner()
+        process = mock.Mock()
+        process.stdout = io.BytesIO("runner output".encode("utf-16-le"))
+        process.stderr = io.BytesIO(b"")
+        process.returncode = 0
+        process.poll.return_value = 0
+        process.wait.return_value = 0
+
+        executable = scanner_module.shutil.which("cmd.exe")
+        self.assertIsNotNone(executable)
+        with mock.patch.object(scanner_module.subprocess, "Popen", return_value=process) as popen_mock:
+            result = scanner._run_command(
+                [executable, "/c", "echo", "runner output"],
+                timeout=1,
+                label="runner test",
+            )
+
+        self.assertEqual(result.stdout, "runner output")
+        self.assertEqual(popen_mock.call_args.kwargs["shell"], False)
+        self.assertIs(popen_mock.call_args.kwargs["stdin"], scanner_module.subprocess.DEVNULL)
+
+    def test_scan_status_uses_complete_named_stage_count(self):
+        statuses = []
+        scanner = ApplicationScanner(status_callback=statuses.append)
+        with mock.patch.object(scanner, "scan_registry", return_value=[Application(name="Alpha")]), \
+                mock.patch.object(scanner, "_apply_last_used_dates"), \
+                mock.patch.object(scanner, "_apply_virustotal_hashes"):
+            scanner.scan_all(
+                include_sources={"registry"},
+                skip_network=True,
+                skip_hashing=True,
+                skip_last_used=True,
+            )
+
+        self.assertIn("Phase 1/18: Scanning Windows Registry...", statuses)
+        self.assertIn("Phase 18/18: Measuring installed directory sizes...", statuses)
+        self.assertFalse(any("/9" in status for status in statuses))
+
     def test_registry_scan_deduplicates_and_parses_fields(self):
         fake_registry = {
             r"SOFTWARE\TestApps": {
@@ -103,12 +143,14 @@ class ScannerTests(unittest.TestCase):
             }
         ]
         completed = mock.Mock(returncode=0, stdout=json.dumps(payload))
-        with mock.patch.object(scanner_module.subprocess, "run", return_value=completed) as run_mock:
-            apps = ApplicationScanner().scan_store_apps()
+        scanner = ApplicationScanner()
+        with mock.patch.object(scanner, "_run_command", return_value=completed) as run_mock:
+            apps = scanner.scan_store_apps()
 
         self.assertEqual(len(apps), 1)
         self.assertEqual(apps[0].publisher, "Contoso")
-        self.assertFalse(run_mock.call_args.kwargs.get("shell", False))
+        self.assertEqual(run_mock.call_args.args[0][0], "powershell")
+        self.assertEqual(run_mock.call_args.kwargs["timeout"], 60)
 
     def test_program_files_scan_finds_executables_and_skips_seen_names(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -182,7 +224,7 @@ class ScannerTests(unittest.TestCase):
         json_failure = mock.Mock(returncode=1, stdout="")
         text_result = mock.Mock(returncode=0, stdout="sortie inconnue sans colonnes ni identifiants")
 
-        with mock.patch.object(scanner_module.subprocess, "run", side_effect=[json_failure, text_result]), mock.patch.object(
+        with mock.patch.object(scanner, "_run_command", side_effect=[json_failure, text_result]), mock.patch.object(
             scanner, "_log_warning"
         ) as warning_mock:
             winget_map = scanner._build_winget_map()
@@ -197,7 +239,7 @@ class ScannerTests(unittest.TestCase):
         json_failure = mock.Mock(returncode=1, stdout=None)
         text_result = mock.Mock(returncode=0, stdout=None)
 
-        with mock.patch.object(scanner_module.subprocess, "run", side_effect=[json_failure, text_result]):
+        with mock.patch.object(scanner, "_run_command", side_effect=[json_failure, text_result]):
             self.assertEqual(scanner._build_winget_map(), {})
 
     def test_scan_all_records_source_diagnostics(self):
@@ -294,8 +336,9 @@ class ScannerTests(unittest.TestCase):
             returncode=0,
             stdout=json.dumps([{"name": "requests", "version": "2.32.3"}]),
         )
-        with mock.patch.object(scanner_module.subprocess, "run", return_value=completed):
-            apps = ApplicationScanner().scan_pip()
+        scanner = ApplicationScanner()
+        with mock.patch.object(scanner, "_run_command", return_value=completed):
+            apps = scanner.scan_pip()
 
         self.assertEqual(len(apps), 1)
         self.assertEqual(apps[0].name, "requests")
@@ -320,12 +363,12 @@ class ScannerTests(unittest.TestCase):
         )
         with mock.patch.object(scanner_module.sys, "frozen", True, create=True), \
                 mock.patch.object(scanner_module.shutil, "which", return_value=r"C:\Python312\python.exe"), \
-                mock.patch.object(scanner_module.subprocess, "run", return_value=completed) as run_mock:
+                mock.patch.object(scanner, "_run_command", return_value=completed) as run_mock:
             apps = scanner.scan_pip()
 
         self.assertEqual(len(apps), 1)
         self.assertEqual(apps[0].name, "numpy")
-        self.assertEqual(run_mock.call_args[0][0][0], r"C:\Python312\python.exe")
+        self.assertEqual(run_mock.call_args.args[0][0], r"C:\Python312\python.exe")
 
     def test_portable_app_scan_finds_exe_bearing_folders(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -352,8 +395,9 @@ class ScannerTests(unittest.TestCase):
             {"FeatureName": "Containers"},
         ])
         completed = mock.Mock(returncode=0, stdout=payload)
-        with mock.patch.object(scanner_module.subprocess, "run", return_value=completed):
-            apps = ApplicationScanner().scan_windows_features()
+        scanner = ApplicationScanner()
+        with mock.patch.object(scanner, "_run_command", return_value=completed):
+            apps = scanner.scan_windows_features()
 
         self.assertEqual(len(apps), 2)
         self.assertEqual(apps[0].name, "Microsoft-Hyper-V")
@@ -377,8 +421,9 @@ class ScannerTests(unittest.TestCase):
             "Signer Name:        Microsoft Windows Hardware\n\n"
         )
         completed = mock.Mock(returncode=0, stdout=pnputil_output)
-        with mock.patch.object(scanner_module.subprocess, "run", return_value=completed):
-            apps = ApplicationScanner().scan_drivers()
+        scanner = ApplicationScanner()
+        with mock.patch.object(scanner, "_run_command", return_value=completed):
+            apps = scanner.scan_drivers()
 
         self.assertEqual(len(apps), 2)
         self.assertEqual(apps[0].name, "igdlh64.inf")
@@ -393,8 +438,9 @@ class ScannerTests(unittest.TestCase):
             "  Debian          Stopped         1\n"
         ).encode("utf-16-le")
         completed = mock.Mock(returncode=0, stdout=wsl_output)
-        with mock.patch.object(scanner_module.subprocess, "run", return_value=completed):
-            apps = ApplicationScanner().scan_wsl_distros()
+        scanner = ApplicationScanner()
+        with mock.patch.object(scanner, "_run_command", return_value=completed):
+            apps = scanner.scan_wsl_distros()
 
         self.assertEqual(len(apps), 2)
         self.assertEqual(apps[0].name, "Ubuntu-22.04")
@@ -522,13 +568,14 @@ class ScannerTests(unittest.TestCase):
             "PathName": r"C:\Program Files\Fabrikam\svc.exe",
         }]
         completed = mock.Mock(returncode=0, stdout=json.dumps(payload), stderr="")
-        with mock.patch.object(scanner_module.subprocess, "run", return_value=completed) as run_mock:
-            apps = ApplicationScanner().scan_services()
+        scanner = ApplicationScanner()
+        with mock.patch.object(scanner, "_run_command", return_value=completed) as run_mock:
+            apps = scanner.scan_services()
         self.assertEqual(len(apps), 1)
         self.assertEqual(apps[0].app_type, "Service")
         self.assertIn("Set-Service", apps[0].uninstall_command)
         self.assertIn("Disabled", apps[0].uninstall_command)
-        self.assertFalse(run_mock.call_args.kwargs.get("shell", False))
+        self.assertEqual(run_mock.call_args.args[0][0], "powershell")
 
     def test_scheduled_tasks_skip_microsoft_and_disabled(self):
         payload = [
@@ -536,8 +583,9 @@ class ScannerTests(unittest.TestCase):
             {"TaskName": "OneDrive Standalone Update", "TaskPath": "\\Microsoft\\Windows\\OneDrive\\", "State": "Ready", "Author": "MS"},
         ]
         completed = mock.Mock(returncode=0, stdout=json.dumps(payload), stderr="")
-        with mock.patch.object(scanner_module.subprocess, "run", return_value=completed):
-            apps = ApplicationScanner().scan_scheduled_tasks()
+        scanner = ApplicationScanner()
+        with mock.patch.object(scanner, "_run_command", return_value=completed):
+            apps = scanner.scan_scheduled_tasks()
         self.assertEqual(len(apps), 1)
         self.assertEqual(apps[0].name, "FabrikamUpdate")
         self.assertIn("Disable-ScheduledTask", apps[0].uninstall_command)
@@ -548,8 +596,9 @@ class ScannerTests(unittest.TestCase):
             "Version": "5.0.0", "PackageName": "Microsoft.XboxGamingOverlay_5.0.0_x64__8wekyb",
         }]
         completed = mock.Mock(returncode=0, stdout=json.dumps(payload), stderr="")
-        with mock.patch.object(scanner_module.subprocess, "run", return_value=completed):
-            apps = ApplicationScanner().scan_provisioned_packages()
+        scanner = ApplicationScanner()
+        with mock.patch.object(scanner, "_run_command", return_value=completed):
+            apps = scanner.scan_provisioned_packages()
         self.assertEqual(len(apps), 1)
         self.assertEqual(apps[0].app_type, "Provisioned Package")
         self.assertIn("Remove-AppxProvisionedPackage", apps[0].uninstall_command)
@@ -558,8 +607,9 @@ class ScannerTests(unittest.TestCase):
     def test_provisioned_scan_skips_frameworks(self):
         payload = [{"DisplayName": "Microsoft.VCLibs.140.00", "PackageName": "x", "Version": "1"}]
         completed = mock.Mock(returncode=0, stdout=json.dumps(payload), stderr="")
-        with mock.patch.object(scanner_module.subprocess, "run", return_value=completed):
-            apps = ApplicationScanner().scan_provisioned_packages()
+        scanner = ApplicationScanner()
+        with mock.patch.object(scanner, "_run_command", return_value=completed):
+            apps = scanner.scan_provisioned_packages()
         self.assertEqual(apps, [])
 
     def test_startup_impact_rating(self):

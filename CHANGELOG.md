@@ -11,6 +11,7 @@ All notable changes to AppList will be documented in this file.
 - Upgraded setuptools to 83.0.0 for PYSEC-2026-3447 and made native-command failures fail the release verifier.
 - Release builds are explicitly unsigned; local certificate discovery and Authenticode signing are no longer part of the build path.
 - Added privacy-safe provenance identity keys, source-local deduplication, and identity-based snapshot diffs; JSON schema is now 1.3 with deterministic legacy fallback.
+- Centralized scanner subprocess execution with resolved executables, shell isolation, cancellation, bounded output, encoding fallbacks, checked failures, and an 18-stage progress model.
 
 ## [v1.9.0] - 2026-07-10
 
