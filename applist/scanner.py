@@ -42,6 +42,8 @@ HASH_SKIP_EXECUTABLE_PARTS = (
     "helper",
     "service",
 )
+DIRECTORY_SIZE_MAX_FILES = 100_000
+DIRECTORY_SIZE_MAX_SECONDS = 2.0
 
 
 class ApplicationScanner:
@@ -118,15 +120,44 @@ class ApplicationScanner:
             return f"{size_kb / (1024 * 1024):.2f} GB"
 
     def _measure_directory_size_kb(self, path: str) -> int:
-        """Walk a directory and return total size in KB."""
+        """Return a complete directory size, or zero when a safety bound is hit."""
         total = 0
+        files_seen = 0
+        started = monotonic()
+        pending = [path]
+
+        def limited(reason: str) -> int:
+            self._log_warning(f"Directory size measurement skipped for {path}: {reason}.")
+            return 0
+
         try:
-            for dirpath, _dirnames, filenames in os.walk(path):
-                for f in filenames:
-                    try:
-                        total += os.path.getsize(os.path.join(dirpath, f))
-                    except OSError:
-                        pass
+            while pending:
+                if self._cancelled:
+                    return 0
+                if monotonic() - started >= DIRECTORY_SIZE_MAX_SECONDS:
+                    return limited(f"the {DIRECTORY_SIZE_MAX_SECONDS:g}-second time limit was reached")
+
+                current = pending.pop()
+                try:
+                    with os.scandir(current) as entries:
+                        for entry in entries:
+                            if self._cancelled:
+                                return 0
+                            if files_seen >= DIRECTORY_SIZE_MAX_FILES:
+                                return limited(f"the {DIRECTORY_SIZE_MAX_FILES:,}-file limit was reached")
+                            if monotonic() - started >= DIRECTORY_SIZE_MAX_SECONDS:
+                                return limited(f"the {DIRECTORY_SIZE_MAX_SECONDS:g}-second time limit was reached")
+
+                            try:
+                                if entry.is_dir(follow_symlinks=False):
+                                    pending.append(entry.path)
+                                elif entry.is_file(follow_symlinks=False):
+                                    files_seen += 1
+                                    total += entry.stat(follow_symlinks=False).st_size
+                            except OSError:
+                                pass
+                except OSError:
+                    pass
         except OSError:
             return 0
         return total // 1024

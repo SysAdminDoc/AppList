@@ -555,6 +555,40 @@ class ScannerTests(unittest.TestCase):
         self.assertEqual(scanner.applications[1].startup_impact, "Low")
         self.assertEqual(scanner.applications[2].startup_impact, "")
 
+    def test_directory_size_measurement_counts_small_tree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "alpha.bin").write_bytes(b"a" * 1024)
+            (root / "nested").mkdir()
+            (root / "nested" / "beta.bin").write_bytes(b"b" * 2048)
+
+            self.assertEqual(ApplicationScanner()._measure_directory_size_kb(tmp), 3)
+
+    def test_directory_size_measurement_skips_tree_over_file_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("alpha.bin", "beta.bin", "gamma.bin"):
+                Path(tmp, name).write_bytes(b"x")
+
+            scanner = ApplicationScanner()
+            with mock.patch.object(scanner_module, "DIRECTORY_SIZE_MAX_FILES", 2), mock.patch.object(
+                scanner, "_log_warning"
+            ) as warning:
+                self.assertEqual(scanner._measure_directory_size_kb(tmp), 0)
+
+            warning.assert_called_once()
+            self.assertIn("file limit", warning.call_args.args[0])
+
+    def test_directory_size_measurement_skips_tree_over_time_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            scanner = ApplicationScanner()
+            with mock.patch.object(scanner_module, "DIRECTORY_SIZE_MAX_SECONDS", 1.0), mock.patch.object(
+                scanner_module, "monotonic", side_effect=[0.0, 2.0]
+            ), mock.patch.object(scanner, "_log_warning") as warning:
+                self.assertEqual(scanner._measure_directory_size_kb(tmp), 0)
+
+            warning.assert_called_once()
+            self.assertIn("time limit", warning.call_args.args[0])
+
 
 if __name__ == "__main__":
     unittest.main()

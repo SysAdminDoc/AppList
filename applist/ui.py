@@ -41,6 +41,7 @@ from .exports import (
 )
 
 PAGE_SIZE = 500
+FILTER_DEBOUNCE_MS = 150
 
 
 def get_page_bounds(total_rows: int, current_page: int, page_size: int = PAGE_SIZE):
@@ -220,6 +221,7 @@ class AppListWindow(ctk.CTk):
         self.group_by_var = tk.StringVar(value="None")
         self.is_scanning = False
         self.scan_has_run = False
+        self._filter_debounce_id = None
         self._baseline_path = os.path.join(os.environ.get("APPDATA", ""), "AppList", "baseline.json")
         self._layout_path = os.path.join(os.environ.get("APPDATA", ""), "AppList", "layout.json")
         self._all_columns = (
@@ -908,6 +910,7 @@ class AppListWindow(ctk.CTk):
         self.source_filter_var.set("All Sources")
         self.upgrade_filter_var.set("Any Upgrade State")
         self.current_page = 0
+        self._cancel_filter_debounce()
         self._apply_filters()
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -1273,11 +1276,30 @@ class AppListWindow(ctk.CTk):
         self._populate_treeview()
 
     def _on_search_changed(self, *args):
-        if hasattr(self, "_search_debounce_id"):
-            self.after_cancel(self._search_debounce_id)
-        self._search_debounce_id = self.after(150, self._apply_filters)
+        self._schedule_filter_apply()
 
     def _on_filter_changed(self, *args):
+        self._schedule_filter_apply()
+
+    def _cancel_filter_debounce(self):
+        debounce_id = getattr(self, "_filter_debounce_id", None)
+        if debounce_id is None:
+            return
+        try:
+            self.after_cancel(debounce_id)
+        except tk.TclError:
+            pass
+        self._filter_debounce_id = None
+
+    def _schedule_filter_apply(self):
+        self._cancel_filter_debounce()
+        self._filter_debounce_id = self.after(
+            FILTER_DEBOUNCE_MS,
+            self._run_debounced_filter_apply,
+        )
+
+    def _run_debounced_filter_apply(self):
+        self._filter_debounce_id = None
         self._apply_filters()
 
     def _on_grouping_changed(self):
@@ -1892,4 +1914,5 @@ class AppListWindow(ctk.CTk):
     def _on_close(self):
         if self.scanner:
             self.scanner.cancel()
+        self._cancel_filter_debounce()
         self.destroy()
