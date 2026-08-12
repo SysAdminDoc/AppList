@@ -28,7 +28,7 @@ pyparsing==3.3.2
 pywin32-ctypes==0.2.3
 requests==2.34.2
 rich==15.0.0
-setuptools==82.0.1
+setuptools==83.0.0
 sortedcontainers==2.4.0
 tomli==2.4.1
 tomli_w==1.2.0

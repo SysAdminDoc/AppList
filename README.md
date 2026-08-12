@@ -129,7 +129,7 @@ powershell -ExecutionPolicy Bypass -File tools/verify_release_dependencies.ps1
 powershell -ExecutionPolicy Bypass -File tools/build_exe.ps1
 ```
 
-Dependencies are exact-pinned in `requirements.txt`. The release verifier creates a clean local virtual environment, installs the locked dependency set, runs `pip-audit`, runs tests, and imports the GUI against the pinned customtkinter version. The build script installs from the same lock file before creating `dist/AppList.exe` with PyInstaller and uses a local code-signing certificate when one is available.
+Dependencies are exact-pinned in `requirements.txt`. The release verifier creates a clean local virtual environment, installs the locked dependency set, runs `pip-audit` with fail-closed exit handling, runs tests, and imports the GUI against the pinned customtkinter version. The build script installs from the same lock file before creating an unsigned `dist/AppList.exe` with PyInstaller.
 
 ## Export Formats
 

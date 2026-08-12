@@ -35,28 +35,8 @@ if (-not (Test-Path -LiteralPath $exePath)) {
     throw "Build finished without dist\AppList.exe"
 }
 
-$cert = $null
-try {
-    $cert = Get-ChildItem Cert:\CurrentUser\My -ErrorAction SilentlyContinue |
-        Where-Object {
-            $_.HasPrivateKey -and (
-                $_.EnhancedKeyUsageList.FriendlyName -contains "Code Signing" -or
-                $_.EnhancedKeyUsageList.ObjectId -contains "1.3.6.1.5.5.7.3.3"
-            )
-        } |
-        Select-Object -First 1
-} catch {
-    $cert = $null
-}
-
 $signatureStatus = "unsigned"
-if ($cert) {
-    Set-AuthenticodeSignature -FilePath $exePath -Certificate $cert -TimestampServer "http://timestamp.digicert.com" | Out-Null
-    $signatureStatus = "signed"
-    Write-Host "Signed $exePath"
-} else {
-    Write-Warning "No local code-signing certificate found; built executable is unsigned."
-}
+Write-Host "Built executable is unsigned."
 
 $sha256 = (Get-FileHash -LiteralPath $exePath -Algorithm SHA256).Hash
 $pyVersion = & $pythonPath -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')"

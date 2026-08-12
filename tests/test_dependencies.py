@@ -1,4 +1,5 @@
 import unittest
+import subprocess
 from pathlib import Path
 
 
@@ -23,6 +24,31 @@ class DependencyLockTests(unittest.TestCase):
         self.assertIn("customtkinter==5.2.2", requirements)
         self.assertIn("pip-audit==2.10.1", requirements)
         self.assertIn("pyinstaller==6.19.0", requirements)
+        self.assertIn("setuptools==83.0.0", requirements)
+
+    def test_checked_native_helper_propagates_nonzero_exit_code(self):
+        helper = Path("tools/invoke_checked_native.ps1").resolve()
+        command = (
+            f". '{helper}'; "
+            "Invoke-CheckedNative -FilePath 'cmd.exe' "
+            "-ArgumentList @('/c', 'exit', '37')"
+        )
+        result = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                command,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("exit code 37", result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

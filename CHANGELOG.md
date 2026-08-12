@@ -8,6 +8,8 @@ All notable changes to AppList will be documented in this file.
 - Debounced search, type, source, and upgrade filter refreshes to keep large inventories responsive during rapid input changes.
 - Bounded measured directory-size scans to 100,000 files or two seconds; incomplete measurements are omitted and surfaced as diagnostics instead of reporting partial totals.
 - Re-ran the release dependency verifier and end-to-end PyInstaller build after the scanner and UI changes.
+- Upgraded setuptools to 83.0.0 for PYSEC-2026-3447 and made native-command failures fail the release verifier.
+- Release builds are explicitly unsigned; local certificate discovery and Authenticode signing are no longer part of the build path.
 
 ## [v1.9.0] - 2026-07-10
 
