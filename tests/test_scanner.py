@@ -215,6 +215,25 @@ class ScannerTests(unittest.TestCase):
         self.assertEqual(diagnostics["Microsoft Store"].status, "skipped")
         self.assertEqual(diagnostics["winget"].status, "skipped")
 
+    def test_scan_all_preserves_same_name_rows_from_distinct_sources(self):
+        scanner = ApplicationScanner()
+        with mock.patch.object(
+            scanner,
+            "scan_registry",
+            return_value=[Application(name="Alpha", source="HKLM64")],
+        ), mock.patch.object(
+            scanner,
+            "scan_store_apps",
+            return_value=[Application(name="Alpha", source="Microsoft Store")],
+        ), mock.patch.object(scanner, "_apply_last_used_dates"), mock.patch.object(
+            scanner, "_apply_virustotal_hashes"
+        ):
+            apps = scanner.scan_all(include_sources={"registry", "store"})
+
+        self.assertEqual(len(apps), 2)
+        self.assertEqual({app.source for app in apps}, {"HKLM64", "Microsoft Store"})
+        self.assertEqual(len({app.identity_key for app in apps}), 2)
+
     def test_scan_all_records_failed_source_diagnostics(self):
         scanner = ApplicationScanner()
 

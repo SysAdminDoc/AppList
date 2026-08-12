@@ -64,6 +64,7 @@ class ExportTests(unittest.TestCase):
             with csv_path.open(encoding="utf-8-sig", newline="") as f:
                 rows = list(csv.reader(f))
             self.assertEqual(rows[0][0], "Application Name")
+            self.assertIn("Identity Key", rows[0])
             self.assertIn("Last Used", rows[0])
             self.assertIn("SHA-256", rows[0])
             self.assertIn("VirusTotal URL", rows[0])
@@ -75,6 +76,7 @@ class ExportTests(unittest.TestCase):
             data = json.loads(json_path.read_text(encoding="utf-8"))
             self.assertEqual(data["total"], 3)
             self.assertEqual(data["applications"][0]["name"], "Alpha")
+            self.assertTrue(data["applications"][0]["identity_key"].startswith("app:"))
             self.assertEqual(data["applications"][0]["last_used_date"], "2026-06-27 14:30:05")
             self.assertEqual(data["applications"][0]["sha256_hash"], "a" * 64)
 
@@ -242,6 +244,37 @@ class ExportTests(unittest.TestCase):
             self.assertEqual(diff["added"][0]["name"], "Added")
             self.assertEqual(diff["removed"][0]["name"], "Removed")
             self.assertEqual(diff["version_changed"][0]["name"], "Alpha")
+
+    def test_diff_uses_provenance_identity_for_same_name_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            old_path = Path(tmp) / "old.json"
+            new_path = Path(tmp) / "new.json"
+            old_apps = [
+                {
+                    "name": "Tool",
+                    "source": "HKLM64",
+                    "uninstall_registry_key": r"HKEY_LOCAL_MACHINE\\Software\\Tool",
+                    "version": "1.0",
+                },
+                {
+                    "name": "Tool",
+                    "source": "Chocolatey",
+                    "install_location": r"C:\\ProgramData\\chocolatey\\lib\\tool",
+                    "version": "1.0",
+                },
+            ]
+            new_apps = [
+                {**old_apps[0], "version": "1.1"},
+                old_apps[1],
+            ]
+            old_path.write_text(json.dumps({"applications": old_apps}), encoding="utf-8")
+            new_path.write_text(json.dumps({"applications": new_apps}), encoding="utf-8")
+
+            diff = diff_json_snapshots(str(old_path), str(new_path))
+
+        self.assertEqual(diff["summary"], {"added": 0, "removed": 0, "version_changed": 1})
+        self.assertEqual(diff["version_changed"][0]["name"], "Tool")
+        self.assertTrue(diff["version_changed"][0]["identity_key"].startswith("app:"))
 
     def test_json_export_emits_stable_schema_version(self):
         apps = [Application(name="Alpha")]

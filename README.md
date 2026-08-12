@@ -32,6 +32,7 @@ A Windows application inventory tool for scanning, cataloging, comparing, and ex
 
 ### Detailed Information Captured
 - Application name, publisher, version, install date, last-used date, source, type, architecture, and size
+- Privacy-safe stable identity key derived from source-native IDs or installation evidence
 - Install location, executable path, registry uninstall key, and uninstall command
 - Winget package ID, upgrade status, pin status, missing-path flag, and package-manager consistency status
 - SHA-256 hash and VirusTotal report URL when a primary executable can be identified
@@ -143,7 +144,7 @@ Spreadsheet-ready rows with application identity, install metadata, source/type 
 GitHub-ready grouped report for Desktop, Store, Unregistered, Chocolatey, Scoop, Python, and any other detected app types.
 
 ### JSON Format
-Full AppList schema with machine name, generation timestamp, and application records for round-trippable snapshot diffing.
+Full AppList schema 1.3 with machine name, generation timestamp, privacy-safe identity keys, and application records for round-trippable snapshot diffing. Older snapshots without identity keys remain diff-compatible through deterministic legacy identity resolution.
 
 ### Restore Bundle
 ZIP or folder output containing AppList JSON, Winget import JSON, pip requirements, Chocolatey config, Markdown and HTML reports, `restore-commands.ps1`, `manifest.json`, and `unmatched-skipped.md`.

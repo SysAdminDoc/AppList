@@ -3,4 +3,4 @@
 APP_NAME = "AppList"
 APP_VERSION = "1.9.1"
 APP_SUBTITLE = "Windows Application Inventory Scanner"
-JSON_SCHEMA_VERSION = "1.2"
+JSON_SCHEMA_VERSION = "1.3"

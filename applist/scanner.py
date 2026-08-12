@@ -54,6 +54,9 @@ class ApplicationScanner:
         self.status_callback = status_callback
         self.applications: List[Application] = []
         self.scan_diagnostics: List[ScanDiagnostic] = []
+        # Source-local deduplication keys. Display names are not globally
+        # unique: the same name may legitimately exist in the registry, Store,
+        # and package-manager inventories as distinct evidence rows.
         self.seen_apps: set = set()
         self._cancelled = False
         self._active_diagnostic: Optional[ScanDiagnostic] = None
@@ -1846,6 +1849,10 @@ class ApplicationScanner:
 
         def add_source(source_key: str, source_name: str, status: str, scanner: Callable[[], List[Application]]):
             if source_enabled(source_key):
+                # Each collector owns its own duplicate namespace. Keeping
+                # this set global caused a source scanned earlier to hide a
+                # same-name application from a later source.
+                self.seen_apps = set()
                 self._update_status(status)
                 rows = self._run_diagnostic_step(source_name, scanner)
                 self.applications.extend(rows)
@@ -2045,6 +2052,7 @@ class ApplicationScanner:
         if skip_network:
             self._record_skipped_source("winget")
         elif source_enabled("winget"):
+            self.seen_apps = set()
             self._update_status("Phase 7/9: Cross-referencing with winget...")
             self._run_diagnostic_step("winget", scan_winget_cross_reference)
         else:

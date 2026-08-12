@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import APP_NAME, APP_VERSION, JSON_SCHEMA_VERSION
-from .models import Application, ScanDiagnostic
+from .models import Application, ScanDiagnostic, application_identity
 
 
 def _diagnostic_dicts(diagnostics: Optional[List[ScanDiagnostic]]) -> List[Dict[str, Any]]:
@@ -129,6 +129,7 @@ def write_csv_export(apps: List[Application], filepath: str):
         writer = csv.writer(f)
         writer.writerow([
             "Application Name",
+            "Identity Key",
             "Publisher",
             "Version",
             "Install Date",
@@ -582,22 +583,39 @@ def diff_json_snapshots(old_path: str, new_path: str) -> Dict[str, Any]:
     with open(new_path, encoding="utf-8") as f:
         new_data = json.load(f)
 
-    old_apps = {a["name"]: a for a in old_data.get("applications", [])}
-    new_apps = {a["name"]: a for a in new_data.get("applications", [])}
+    def index_snapshot(records: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+        indexed: Dict[str, Dict[str, Any]] = {}
+        duplicate_counts: Dict[str, int] = {}
+        for record in records:
+            identity = application_identity(record)
+            normalized = dict(record)
+            normalized.setdefault("identity_key", identity)
+            key = identity
+            if key in indexed:
+                duplicate_counts[identity] = duplicate_counts.get(identity, 0) + 1
+                key = f"{identity}:duplicate:{duplicate_counts[identity]}"
+            indexed[key] = normalized
+        return indexed
+
+    old_records = old_data.get("applications", [])
+    new_records = new_data.get("applications", [])
+    old_apps = index_snapshot(old_records)
+    new_apps = index_snapshot(new_records)
 
     added = []
     removed = []
     version_changed = []
 
-    for name, app in new_apps.items():
-        if name not in old_apps:
+    for identity, app in new_apps.items():
+        if identity not in old_apps:
             added.append(app)
         else:
-            old_ver = old_apps[name].get("version", "")
+            old_ver = old_apps[identity].get("version", "")
             new_ver = app.get("version", "")
             if old_ver != new_ver and (old_ver or new_ver):
                 version_changed.append({
-                    "name": name,
+                    "name": app.get("name", ""),
+                    "identity_key": identity,
                     "publisher": app.get("publisher", ""),
                     "old_version": old_ver,
                     "new_version": new_ver,
@@ -605,8 +623,8 @@ def diff_json_snapshots(old_path: str, new_path: str) -> Dict[str, Any]:
                     "source": app.get("source", ""),
                 })
 
-    for name, app in old_apps.items():
-        if name not in new_apps:
+    for identity, app in old_apps.items():
+        if identity not in new_apps:
             removed.append(app)
 
     return {
@@ -616,22 +634,22 @@ def diff_json_snapshots(old_path: str, new_path: str) -> Dict[str, Any]:
             "file": old_path,
             "machine": old_data.get("machine", ""),
             "generated": old_data.get("generated", ""),
-            "total": old_data.get("total", len(old_apps)),
+            "total": old_data.get("total", len(old_records)),
         },
         "new_snapshot": {
             "file": new_path,
             "machine": new_data.get("machine", ""),
             "generated": new_data.get("generated", ""),
-            "total": new_data.get("total", len(new_apps)),
+            "total": new_data.get("total", len(new_records)),
         },
         "summary": {
             "added": len(added),
             "removed": len(removed),
             "version_changed": len(version_changed),
         },
-        "added": sorted(added, key=lambda a: a.get("name", "").lower()),
-        "removed": sorted(removed, key=lambda a: a.get("name", "").lower()),
-        "version_changed": sorted(version_changed, key=lambda a: a.get("name", "").lower()),
+        "added": sorted(added, key=lambda a: (a.get("name", "").lower(), a.get("identity_key", ""))),
+        "removed": sorted(removed, key=lambda a: (a.get("name", "").lower(), a.get("identity_key", ""))),
+        "version_changed": sorted(version_changed, key=lambda a: (a.get("name", "").lower(), a.get("identity_key", ""))),
     }
 
 
