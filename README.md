@@ -100,6 +100,7 @@ Or double-click `AppList.py` in Windows Explorer after dependencies are installe
 5. Right-click any item for context menu actions
 6. Double-click to open the install location
 7. Export the filtered view as TXT, CSV, Markdown, JSON, HTML, Winget, pip, Chocolatey, or restore bundle output
+8. Enable **Redact machine data** beside the export buttons before sharing an artifact; it removes host/account/profile metadata, registry and uninstall details, hashes, VirusTotal URLs, and diagnostic payloads from every writer
 
 ### CLI Mode
 
@@ -120,6 +121,8 @@ python AppList.py --export json --output apps.json --skip-network --skip-hashing
 ```
 
 Supported export formats: `txt`, `csv`, `md`, `json`, `winget`, `html`, `pip`, `choco`, `ps1`, `bundle`.
+
+`--redact` applies to every export writer, restore-bundle member, emitted diagnostics sidecar, and diff output. Without it, JSON, Markdown, and HTML include the local machine label by design.
 
 Supported source filters: `all`, `desktop`, `registry`, `store`, `program_files`, `chocolatey`, `scoop`, `pip`, `winget`, `startup`, `portable`, `drivers`, `features`, `wsl`.
 

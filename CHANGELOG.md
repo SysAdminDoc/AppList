@@ -12,6 +12,7 @@ All notable changes to AppList will be documented in this file.
 - Release builds are explicitly unsigned; local certificate discovery and Authenticode signing are no longer part of the build path.
 - Added privacy-safe provenance identity keys, source-local deduplication, and identity-based snapshot diffs; JSON schema is now 1.3 with deterministic legacy fallback.
 - Centralized scanner subprocess execution with resolved executables, shell isolation, cancellation, bounded output, encoding fallbacks, checked failures, and an 18-stage progress model.
+- Applied `--redact` consistently across all export writers, diagnostics sidecars, restore-bundle members, snapshot diffs, and the GUI export controls; redacted diagnostics no longer preserve command output.
 
 ## [v1.9.0] - 2026-07-10
 

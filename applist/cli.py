@@ -12,7 +12,7 @@ from . import APP_NAME, APP_VERSION
 from .constants import parse_include_sources
 from .scanner import ApplicationScanner
 from .exports import (
-    redact_applications,
+    redact_diagnostics,
     write_txt_export,
     write_csv_export,
     write_markdown_export,
@@ -202,7 +202,7 @@ def run_cli(argv: List[str]) -> int:
     if args.diff:
         old_path, new_path = args.diff
         try:
-            diff = diff_json_snapshots(old_path, new_path)
+            diff = diff_json_snapshots(old_path, new_path, redacted=args.redact)
         except (OSError, json.JSONDecodeError, KeyError, TypeError) as e:
             print(f"Error reading snapshots: {e}", file=sys.stderr)
             return 1
@@ -274,9 +274,6 @@ def run_cli(argv: List[str]) -> int:
             for warning in diagnostic.warnings:
                 print(f"    Warning: {warning}", file=sys.stderr)
 
-    if args.redact:
-        apps = redact_applications(apps)
-
     writers = {
         "txt": write_txt_export,
         "csv": write_csv_export,
@@ -293,11 +290,14 @@ def run_cli(argv: List[str]) -> int:
 
     try:
         if export_format == "bundle":
-            result = writers["bundle"](apps, str(output_path), diagnostics, overwrite=args.overwrite)
+            result = writers["bundle"](
+                apps, str(output_path), diagnostics,
+                overwrite=args.overwrite, redacted=args.redact,
+            )
         elif export_format in {"txt", "markdown", "json", "html"}:
-            result = writers[export_format](apps, str(output_path), diagnostics)
+            result = writers[export_format](apps, str(output_path), diagnostics, redacted=args.redact)
         else:
-            result = writers[export_format](apps, str(output_path))
+            result = writers[export_format](apps, str(output_path), redacted=args.redact)
     except (OSError, csv.Error, TypeError, ValueError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
@@ -310,9 +310,11 @@ def run_cli(argv: List[str]) -> int:
     if args.emit_diagnostics:
         diag_path = Path(args.emit_diagnostics).expanduser()
         diag_path.parent.mkdir(parents=True, exist_ok=True)
+        diagnostics_for_output = redact_diagnostics(diagnostics) if args.redact else diagnostics
         diag_data = {
             "generated": datetime.now().isoformat(),
-            "diagnostics": [d.to_dict() for d in diagnostics],
+            "redacted": args.redact,
+            "diagnostics": [d.to_dict() for d in diagnostics_for_output],
         }
         with open(str(diag_path), "w", encoding="utf-8") as f:
             json.dump(diag_data, f, indent=2, ensure_ascii=False)

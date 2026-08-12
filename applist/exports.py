@@ -1,8 +1,10 @@
 """Export writers for all supported output formats."""
 
 import csv
+import copy
 import json
 import os
+import re
 import shutil
 import tempfile
 import zipfile
@@ -25,35 +27,90 @@ def _has_reportable_diagnostics(diagnostics: Optional[List[ScanDiagnostic]]) -> 
     )
 
 
-def redact_applications(apps: List[Application]) -> List[Application]:
-    """Return copies of applications with privacy-sensitive fields redacted."""
-    import copy
-    import re
+def _redact_text(value: Any) -> str:
+    """Remove local account, profile, and host tokens from export text."""
+    text = str(value or "")
     username = os.environ.get("USERNAME", "")
     userprofile = os.environ.get("USERPROFILE", "")
     hostname = os.environ.get("COMPUTERNAME", "")
 
-    def _redact_path(value: str) -> str:
-        if not value:
-            return value
-        result = value
-        if userprofile:
-            result = result.replace(userprofile, "%USERPROFILE%")
-        if username and len(username) > 2:
-            result = re.sub(re.escape(username), "<REDACTED>", result, flags=re.IGNORECASE)
-        return result
+    if userprofile:
+        text = re.sub(re.escape(userprofile), "<REDACTED_PATH>", text, flags=re.IGNORECASE)
+    if username and len(username) > 2:
+        text = re.sub(re.escape(username), "<REDACTED_USER>", text, flags=re.IGNORECASE)
+    if hostname and len(hostname) > 2:
+        text = re.sub(re.escape(hostname), "<REDACTED_HOST>", text, flags=re.IGNORECASE)
+    return text
 
+
+def redact_diagnostics(
+    diagnostics: Optional[List[ScanDiagnostic]],
+) -> List[ScanDiagnostic]:
+    """Return diagnostic copies without host, account, or profile fragments."""
+    redacted: List[ScanDiagnostic] = []
+    for diagnostic in diagnostics or []:
+        copy_of_diagnostic = copy.copy(diagnostic)
+        copy_of_diagnostic.source = _redact_text(diagnostic.source)
+        # Warning payloads often contain command lines and subprocess output;
+        # preserving their wording would recreate the very metadata redaction
+        # is intended to protect.
+        copy_of_diagnostic.warnings = ["Redacted warning" for _ in diagnostic.warnings]
+        redacted.append(copy_of_diagnostic)
+    return redacted
+
+
+def redact_applications(apps: List[Application]) -> List[Application]:
+    """Return copies of applications with privacy-sensitive fields redacted."""
     redacted = []
     for app in apps:
         r = copy.copy(app)
-        r.install_location = _redact_path(r.install_location)
-        r.executable_path = _redact_path(r.executable_path)
+        for field_name in (
+            "name",
+            "publisher",
+            "version",
+            "install_date",
+            "last_used_date",
+            "estimated_size",
+            "source",
+            "architecture",
+            "app_type",
+            "winget_id",
+            "upgrade_available",
+            "pin_status",
+            "consistency_status",
+            "measured_size",
+            "bloatware",
+            "startup_impact",
+        ):
+            setattr(r, field_name, _redact_text(getattr(r, field_name, "")))
+        r.install_location = _redact_text(r.install_location)
+        r.executable_path = _redact_text(r.executable_path)
         r.uninstall_registry_key = ""
         r.uninstall_command = ""
         r.sha256_hash = ""
         r.virustotal_url = ""
+        r.identity_key = ""
         redacted.append(r)
     return redacted
+
+
+def _prepare_export_apps(apps: List[Application], redacted: bool) -> List[Application]:
+    return redact_applications(apps) if redacted else apps
+
+
+def _prepare_export_diagnostics(
+    diagnostics: Optional[List[ScanDiagnostic]],
+    redacted: bool,
+) -> Optional[List[ScanDiagnostic]]:
+    return redact_diagnostics(diagnostics) if redacted else diagnostics
+
+
+def _export_machine_label(redacted: bool) -> str:
+    return "Redacted" if redacted else os.environ.get("COMPUTERNAME", "Unknown")
+
+
+def _export_user_label(redacted: bool) -> str:
+    return "Redacted" if redacted else os.environ.get("USERNAME", "Unknown")
 
 
 def _write_text_diagnostics(f, diagnostics: Optional[List[ScanDiagnostic]]):
@@ -73,8 +130,16 @@ def _write_text_diagnostics(f, diagnostics: Optional[List[ScanDiagnostic]]):
     f.write("\n")
 
 
-def write_txt_export(apps: List[Application], filepath: str, diagnostics: Optional[List[ScanDiagnostic]] = None):
+def write_txt_export(
+    apps: List[Application],
+    filepath: str,
+    diagnostics: Optional[List[ScanDiagnostic]] = None,
+    *,
+    redacted: bool = False,
+):
     """Write applications to a TXT report."""
+    apps = _prepare_export_apps(apps, redacted)
+    diagnostics = _prepare_export_diagnostics(diagnostics, redacted)
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write("=" * 100 + "\n")
         f.write(f"  {APP_NAME} - Application Inventory Report\n")
@@ -123,8 +188,9 @@ def write_txt_export(apps: List[Application], filepath: str, diagnostics: Option
         f.write("=" * 100 + "\n")
 
 
-def write_csv_export(apps: List[Application], filepath: str):
+def write_csv_export(apps: List[Application], filepath: str, *, redacted: bool = False):
     """Write applications to CSV."""
+    apps = _prepare_export_apps(apps, redacted)
     with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
         writer = csv.writer(f)
         writer.writerow([
@@ -191,10 +257,18 @@ def get_markdown_groups(apps: List[Application]) -> List[Tuple[str, List[Applica
     return [(group_titles.get(app_type, app_type), groups[app_type]) for app_type in ordered_types]
 
 
-def write_markdown_export(apps: List[Application], filepath: str, diagnostics: Optional[List[ScanDiagnostic]] = None):
+def write_markdown_export(
+    apps: List[Application],
+    filepath: str,
+    diagnostics: Optional[List[ScanDiagnostic]] = None,
+    *,
+    redacted: bool = False,
+):
     """Write applications to a Markdown report grouped by type."""
-    hostname = os.environ.get("COMPUTERNAME", "Unknown")
-    username = os.environ.get("USERNAME", "Unknown")
+    apps = _prepare_export_apps(apps, redacted)
+    diagnostics = _prepare_export_diagnostics(diagnostics, redacted)
+    hostname = _export_machine_label(redacted)
+    username = _export_user_label(redacted)
 
     def _md_row(i: int, app: Application) -> str:
         name = app.name.replace("|", "\\|")
@@ -238,13 +312,22 @@ def write_markdown_export(apps: List[Application], filepath: str, diagnostics: O
             f.write("\n")
 
 
-def write_json_export(apps: List[Application], filepath: str, diagnostics: Optional[List[ScanDiagnostic]] = None):
+def write_json_export(
+    apps: List[Application],
+    filepath: str,
+    diagnostics: Optional[List[ScanDiagnostic]] = None,
+    *,
+    redacted: bool = False,
+):
     """Write applications to AppList JSON."""
-    hostname = os.environ.get("COMPUTERNAME", "Unknown")
+    apps = _prepare_export_apps(apps, redacted)
+    diagnostics = _prepare_export_diagnostics(diagnostics, redacted)
+    hostname = _export_machine_label(redacted)
     export_data = {
         "schema": f"AppList/{JSON_SCHEMA_VERSION}",
         "generated": datetime.now().isoformat(),
         "machine": hostname,
+        "redacted": redacted,
         "total": len(apps),
         "applications": [app.to_dict() for app in apps],
     }
@@ -254,8 +337,9 @@ def write_json_export(apps: List[Application], filepath: str, diagnostics: Optio
         json.dump(export_data, f, indent=2, ensure_ascii=False)
 
 
-def write_winget_export(apps: List[Application], filepath: str) -> int:
+def write_winget_export(apps: List[Application], filepath: str, *, redacted: bool = False) -> int:
     """Write matched apps as winget import-compatible JSON and return count."""
+    apps = _prepare_export_apps(apps, redacted)
     winget_apps = [a for a in apps if a.winget_id]
     if not winget_apps:
         raise ValueError("No applications with winget IDs are available to export.")
@@ -290,8 +374,9 @@ def write_winget_export(apps: List[Application], filepath: str) -> int:
     return len(winget_apps)
 
 
-def write_pip_requirements_export(apps: List[Application], filepath: str) -> int:
+def write_pip_requirements_export(apps: List[Application], filepath: str, *, redacted: bool = False) -> int:
     """Write pip packages as a requirements.txt (package==version per line)."""
+    apps = _prepare_export_apps(apps, redacted)
     pip_apps = [a for a in apps if a.app_type == "Python Package"]
     if not pip_apps:
         raise ValueError("No Python (pip) packages are available to export.")
@@ -307,10 +392,11 @@ def write_pip_requirements_export(apps: List[Application], filepath: str) -> int
     return len(pip_apps)
 
 
-def write_choco_export(apps: List[Application], filepath: str) -> int:
+def write_choco_export(apps: List[Application], filepath: str, *, redacted: bool = False) -> int:
     """Write Chocolatey packages as a packages.config XML file."""
     import xml.etree.ElementTree as ET
 
+    apps = _prepare_export_apps(apps, redacted)
     choco_apps = [a for a in apps if a.app_type == "Chocolatey"]
     if not choco_apps:
         raise ValueError("No Chocolatey packages are available to export.")
@@ -329,8 +415,9 @@ def write_choco_export(apps: List[Application], filepath: str) -> int:
     return len(choco_apps)
 
 
-def write_powershell_export(apps: List[Application], filepath: str) -> int:
+def write_powershell_export(apps: List[Application], filepath: str, *, redacted: bool = False) -> int:
     """Write a PowerShell script with install one-liners for each app."""
+    apps = _prepare_export_apps(apps, redacted)
     lines = [
         f"# {APP_NAME} v{APP_VERSION} - PowerShell Install Script",
         f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
@@ -389,10 +476,11 @@ def _removal_command_for(app: Application) -> Optional[str]:
     return None
 
 
-def write_removal_script_export(apps: List[Application], filepath: str) -> int:
+def write_removal_script_export(apps: List[Application], filepath: str, *, redacted: bool = False) -> int:
     """Write a per-source removal/disable PowerShell script (folded in from
     SoftwareScannerGUI). Defaults to a dry run — set $DryRun = $false to arm it.
     """
+    apps = _prepare_export_apps(apps, redacted)
     grouped: Dict[str, List[str]] = {}
     count = 0
     for app in sorted(apps, key=lambda a: (a.app_type, a.name.lower())):
@@ -495,8 +583,11 @@ def write_restore_bundle_export(
     diagnostics: Optional[List[ScanDiagnostic]] = None,
     *,
     overwrite: bool = False,
+    redacted: bool = False,
 ) -> Dict[str, Any]:
     """Write a migration-ready restore bundle folder or zip and return its manifest."""
+    apps = _prepare_export_apps(apps, redacted)
+    diagnostics = _prepare_export_diagnostics(diagnostics, redacted)
     target = Path(output_path).expanduser()
     as_zip = target.suffix.lower() == ".zip"
     bundle_name = target.stem if as_zip else target.name
@@ -524,16 +615,16 @@ def write_restore_bundle_export(
         except ValueError as e:
             skipped[key] = str(e)
 
-    write_json_export(apps, str(root / "applist.json"), diagnostics)
+    write_json_export(apps, str(root / "applist.json"), diagnostics, redacted=redacted)
     files["applist_json"] = "applist.json"
-    write_markdown_export(apps, str(root / "report.md"), diagnostics)
+    write_markdown_export(apps, str(root / "report.md"), diagnostics, redacted=redacted)
     files["markdown_report"] = "report.md"
-    write_html_export(apps, str(root / "dashboard.html"), diagnostics)
+    write_html_export(apps, str(root / "dashboard.html"), diagnostics, redacted=redacted)
     files["html_dashboard"] = "dashboard.html"
 
-    add_file("winget", "winget-packages.json", lambda path: write_winget_export(apps, path))
-    add_file("pip", "requirements.txt", lambda path: write_pip_requirements_export(apps, path))
-    add_file("chocolatey", "packages.config", lambda path: write_choco_export(apps, path))
+    add_file("winget", "winget-packages.json", lambda path: write_winget_export(apps, path, redacted=redacted))
+    add_file("pip", "requirements.txt", lambda path: write_pip_requirements_export(apps, path, redacted=redacted))
+    add_file("chocolatey", "packages.config", lambda path: write_choco_export(apps, path, redacted=redacted))
 
     restore_commands = _restore_command_lines(files)
     (root / "restore-commands.ps1").write_text("\n".join(restore_commands) + "\n", encoding="utf-8")
@@ -544,6 +635,7 @@ def write_restore_bundle_export(
     manifest = {
         "schema": f"AppListRestoreBundle/{APP_VERSION}",
         "generated": datetime.now().isoformat(),
+        "redacted": redacted,
         "application_count": len(apps),
         "files": files,
         "skipped": skipped,
@@ -576,7 +668,47 @@ def write_restore_bundle_export(
     return manifest
 
 
-def diff_json_snapshots(old_path: str, new_path: str) -> Dict[str, Any]:
+def _redact_export_record(record: Dict[str, Any]) -> Dict[str, Any]:
+    sanitized = dict(record)
+    for field_name in (
+        "name",
+        "publisher",
+        "version",
+        "install_date",
+        "last_used_date",
+        "estimated_size",
+        "source",
+        "architecture",
+        "app_type",
+        "winget_id",
+        "upgrade_available",
+        "pin_status",
+        "consistency_status",
+        "measured_size",
+        "bloatware",
+        "startup_impact",
+    ):
+        if field_name in sanitized:
+            sanitized[field_name] = _redact_text(sanitized[field_name])
+    for field_name in ("install_location", "executable_path"):
+        sanitized[field_name] = _redact_text(sanitized.get(field_name, ""))
+    for field_name in (
+        "uninstall_registry_key",
+        "uninstall_command",
+        "sha256_hash",
+        "virustotal_url",
+        "identity_key",
+    ):
+        sanitized[field_name] = ""
+    return sanitized
+
+
+def diff_json_snapshots(
+    old_path: str,
+    new_path: str,
+    *,
+    redacted: bool = False,
+) -> Dict[str, Any]:
     """Compare two AppList JSON snapshots and return Added/Removed/VersionChanged report."""
     with open(old_path, encoding="utf-8") as f:
         old_data = json.load(f)
@@ -627,7 +759,7 @@ def diff_json_snapshots(old_path: str, new_path: str) -> Dict[str, Any]:
         if identity not in new_apps:
             removed.append(app)
 
-    return {
+    result = {
         "schema": f"AppList-Diff/{APP_VERSION}",
         "generated": datetime.now().isoformat(),
         "old_snapshot": {
@@ -651,6 +783,17 @@ def diff_json_snapshots(old_path: str, new_path: str) -> Dict[str, Any]:
         "removed": sorted(removed, key=lambda a: (a.get("name", "").lower(), a.get("identity_key", ""))),
         "version_changed": sorted(version_changed, key=lambda a: (a.get("name", "").lower(), a.get("identity_key", ""))),
     }
+    if redacted:
+        for snapshot in (result["old_snapshot"], result["new_snapshot"]):
+            snapshot["file"] = "<REDACTED_PATH>"
+            snapshot["machine"] = "Redacted"
+        result["added"] = [_redact_export_record(record) for record in result["added"]]
+        result["removed"] = [_redact_export_record(record) for record in result["removed"]]
+        result["version_changed"] = [
+            {**record, "identity_key": ""} for record in result["version_changed"]
+        ]
+        result["redacted"] = True
+    return result
 
 
 def write_diff_report(diff: Dict[str, Any], filepath: Optional[str] = None) -> str:
@@ -798,10 +941,18 @@ def validate_restore_bundle(bundle_path: str) -> Dict[str, Any]:
             zf.close()
 
 
-def write_html_export(apps: List[Application], filepath: str, diagnostics: Optional[List[ScanDiagnostic]] = None):
+def write_html_export(
+    apps: List[Application],
+    filepath: str,
+    diagnostics: Optional[List[ScanDiagnostic]] = None,
+    *,
+    redacted: bool = False,
+):
     """Write a self-contained HTML dashboard with sortable, searchable table."""
     import html as html_mod
-    hostname = os.environ.get("COMPUTERNAME", "Unknown")
+    apps = _prepare_export_apps(apps, redacted)
+    diagnostics = _prepare_export_diagnostics(diagnostics, redacted)
+    hostname = _export_machine_label(redacted)
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Build table rows

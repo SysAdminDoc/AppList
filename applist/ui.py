@@ -219,6 +219,7 @@ class AppListWindow(ctk.CTk):
         self.page_size = PAGE_SIZE
         self.group_by_source_var = tk.BooleanVar(value=False)
         self.group_by_var = tk.StringVar(value="None")
+        self.redact_exports_var = tk.BooleanVar(value=False)
         self.is_scanning = False
         self.scan_has_run = False
         self._filter_debounce_id = None
@@ -616,6 +617,19 @@ class AppListWindow(ctk.CTk):
 
         export_frame = ctk.CTkFrame(bottom_row, fg_color="transparent")
         export_frame.pack(side="right")
+
+        self.redact_exports_checkbox = ctk.CTkCheckBox(
+            export_frame,
+            text="Redact machine data",
+            variable=self.redact_exports_var,
+            width=132,
+            height=28,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=COLORS["text_secondary"],
+            fg_color=COLORS["accent_primary"],
+            hover_color=COLORS["accent_secondary"],
+        )
+        self.redact_exports_checkbox.pack(side="left", padx=(0, 10))
 
         self.export_txt_btn = SecondaryButton(export_frame, text="TXT", width=66, command=self._export_txt)
         self.export_txt_btn.pack(side="left", padx=(0, 6))
@@ -1361,7 +1375,7 @@ class AppListWindow(ctk.CTk):
         if not filepath:
             return
         try:
-            write_txt_export(self.filtered_apps, filepath, self.scan_diagnostics)
+            write_txt_export(self.filtered_apps, filepath, self.scan_diagnostics, redacted=self.redact_exports_var.get())
             self._update_status(f"Exported {len(self.filtered_apps)} rows to TXT.")
             messagebox.showinfo("Export Complete", f"Successfully exported {len(self.filtered_apps)} applications to:\n{filepath}")
         except OSError as e:
@@ -1379,7 +1393,7 @@ class AppListWindow(ctk.CTk):
         if not filepath:
             return
         try:
-            write_csv_export(self.filtered_apps, filepath)
+            write_csv_export(self.filtered_apps, filepath, redacted=self.redact_exports_var.get())
             self._update_status(f"Exported {len(self.filtered_apps)} rows to CSV.")
             messagebox.showinfo("Export Complete", f"Successfully exported {len(self.filtered_apps)} applications to:\n{filepath}")
         except (OSError, csv.Error) as e:
@@ -1397,7 +1411,7 @@ class AppListWindow(ctk.CTk):
         if not filepath:
             return
         try:
-            write_markdown_export(self.filtered_apps, filepath, self.scan_diagnostics)
+            write_markdown_export(self.filtered_apps, filepath, self.scan_diagnostics, redacted=self.redact_exports_var.get())
             self._update_status(f"Exported {len(self.filtered_apps)} rows to Markdown.")
             messagebox.showinfo("Export Complete", f"Successfully exported {len(self.filtered_apps)} applications to:\n{filepath}")
         except OSError as e:
@@ -1415,7 +1429,7 @@ class AppListWindow(ctk.CTk):
         if not filepath:
             return
         try:
-            write_json_export(self.filtered_apps, filepath, self.scan_diagnostics)
+            write_json_export(self.filtered_apps, filepath, self.scan_diagnostics, redacted=self.redact_exports_var.get())
             self._update_status(f"Exported {len(self.filtered_apps)} rows to JSON.")
             messagebox.showinfo("Export Complete", f"Successfully exported {len(self.filtered_apps)} applications to:\n{filepath}")
         except (OSError, TypeError, ValueError) as e:
@@ -1433,7 +1447,7 @@ class AppListWindow(ctk.CTk):
         if not filepath:
             return
         try:
-            write_html_export(self.filtered_apps, filepath, self.scan_diagnostics)
+            write_html_export(self.filtered_apps, filepath, self.scan_diagnostics, redacted=self.redact_exports_var.get())
             self._update_status(f"Exported {len(self.filtered_apps)} rows to HTML.")
             messagebox.showinfo("Export Complete",
                 f"Successfully exported {len(self.filtered_apps)} applications to:\n{filepath}\n\n"
@@ -1460,7 +1474,7 @@ class AppListWindow(ctk.CTk):
         if not filepath:
             return
         try:
-            exported_count = write_winget_export(self.filtered_apps, filepath)
+            exported_count = write_winget_export(self.filtered_apps, filepath, redacted=self.redact_exports_var.get())
             self._update_status(f"Exported {exported_count} winget packages.")
             messagebox.showinfo("Export Complete",
                 f"Exported {exported_count} matched packages to:\n{filepath}\n\n"
@@ -1487,7 +1501,7 @@ class AppListWindow(ctk.CTk):
         if not filepath:
             return
         try:
-            count = write_pip_requirements_export(self.filtered_apps, filepath)
+            count = write_pip_requirements_export(self.filtered_apps, filepath, redacted=self.redact_exports_var.get())
             self._update_status(f"Exported {count} pip packages to requirements.txt.")
             messagebox.showinfo("Export Complete",
                 f"Exported {count} pip packages to:\n{filepath}\n\n"
@@ -1515,7 +1529,7 @@ class AppListWindow(ctk.CTk):
         if not filepath:
             return
         try:
-            count = write_choco_export(self.filtered_apps, filepath)
+            count = write_choco_export(self.filtered_apps, filepath, redacted=self.redact_exports_var.get())
             self._update_status(f"Exported {count} Chocolatey packages.")
             messagebox.showinfo("Export Complete",
                 f"Exported {count} Chocolatey packages to:\n{filepath}\n\n"
@@ -1537,7 +1551,7 @@ class AppListWindow(ctk.CTk):
         if not filepath:
             return
         try:
-            count = write_powershell_export(self.filtered_apps, filepath)
+            count = write_powershell_export(self.filtered_apps, filepath, redacted=self.redact_exports_var.get())
             self._update_status(f"Exported {count} install commands to PS1.")
             messagebox.showinfo("Export Complete",
                 f"Exported {count} install commands to:\n{filepath}")
@@ -1558,7 +1572,7 @@ class AppListWindow(ctk.CTk):
         if not filepath:
             return
         try:
-            count = write_removal_script_export(self.filtered_apps, filepath)
+            count = write_removal_script_export(self.filtered_apps, filepath, redacted=self.redact_exports_var.get())
             self._update_status(f"Exported {count} removal commands to PS1 (dry-run).")
             messagebox.showinfo("Export Complete",
                 f"Exported {count} removal/disable commands to:\n{filepath}\n\n"
@@ -1585,7 +1599,12 @@ class AppListWindow(ctk.CTk):
         if not filepath:
             return
         try:
-            manifest = write_restore_bundle_export(self.filtered_apps, filepath, self.scan_diagnostics)
+            manifest = write_restore_bundle_export(
+                self.filtered_apps,
+                filepath,
+                self.scan_diagnostics,
+                redacted=self.redact_exports_var.get(),
+            )
             self._update_status(f"Exported restore bundle with {manifest['application_count']} applications.")
             messagebox.showinfo(
                 "Export Complete",

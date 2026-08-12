@@ -21,6 +21,7 @@ from applist.exports import (
     write_removal_script_export,
     write_restore_bundle_export,
     write_txt_export,
+    write_winget_export,
 )
 from applist.models import Application, ScanDiagnostic
 
@@ -404,6 +405,132 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(r.sha256_hash, "")
         self.assertEqual(r.virustotal_url, "")
         self.assertEqual(apps[0].sha256_hash, "abc123")
+
+    def test_redacted_writers_strip_metadata_from_every_artifact(self):
+        from unittest import mock
+
+        sensitive_registry = r"HKLM\SOFTWARE\Private Tool"
+        sensitive_command = r'C:\Users\TestUser\AppData\Private Tool\uninstall.exe /quiet'
+        apps = [
+            Application(
+                name="Private Tool",
+                publisher="Private Publisher",
+                install_location=r"C:\Users\TestUser\AppData\Private Tool",
+                executable_path=r"C:\Users\TestUser\AppData\Private Tool\private.exe",
+                uninstall_registry_key=sensitive_registry,
+                uninstall_command=sensitive_command,
+                sha256_hash="abc123" * 11,
+                virustotal_url="https://www.virustotal.com/gui/file/abc123",
+                source="HKLM64",
+            ),
+            Application(name="Private Store", app_type="Store App", uninstall_command=sensitive_command),
+            Application(name="requests", version="2.32.3", app_type="Python Package"),
+            Application(name="git", version="2.45.0", app_type="Chocolatey"),
+            Application(name="Alpha", version="1.0", winget_id="Acme.Alpha"),
+        ]
+        diagnostics = [
+            ScanDiagnostic(
+                source="TESTPC scanner",
+                status="warning",
+                warnings=[f"{sensitive_command} failed for TestUser"],
+            )
+        ]
+        with mock.patch.dict(
+            "os.environ",
+            {
+                "USERNAME": "TestUser",
+                "USERPROFILE": r"C:\Users\TestUser",
+                "COMPUTERNAME": "TESTPC",
+            },
+        ), tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = {
+                "txt": root / "apps.txt",
+                "csv": root / "apps.csv",
+                "markdown": root / "apps.md",
+                "json": root / "apps.json",
+                "html": root / "apps.html",
+                "winget": root / "winget.json",
+                "pip": root / "requirements.txt",
+                "choco": root / "packages.config",
+                "ps1": root / "install.ps1",
+                "removal": root / "removal.ps1",
+                "bundle": root / "bundle.zip",
+            }
+            write_txt_export(apps, str(paths["txt"]), diagnostics, redacted=True)
+            write_csv_export(apps, str(paths["csv"]), redacted=True)
+            write_markdown_export(apps, str(paths["markdown"]), diagnostics, redacted=True)
+            write_json_export(apps, str(paths["json"]), diagnostics, redacted=True)
+            write_html_export(apps, str(paths["html"]), diagnostics, redacted=True)
+            write_winget_export(apps, str(paths["winget"]), redacted=True)
+            write_pip_requirements_export(apps, str(paths["pip"]), redacted=True)
+            write_choco_export(apps, str(paths["choco"]), redacted=True)
+            write_powershell_export(apps, str(paths["ps1"]), redacted=True)
+            write_removal_script_export(apps, str(paths["removal"]), redacted=True)
+            write_restore_bundle_export(apps, str(paths["bundle"]), diagnostics, redacted=True)
+
+            artifact_text = []
+            for path in paths.values():
+                if path.suffix.lower() == ".zip":
+                    with zipfile.ZipFile(path) as archive:
+                        artifact_text.extend(
+                            member.decode("utf-8")
+                            for name in archive.namelist()
+                            for member in [archive.read(name)]
+                        )
+                else:
+                    artifact_text.append(path.read_text(encoding="utf-8", errors="replace"))
+
+            combined = "\n".join(artifact_text).casefold()
+            for token in (
+                "testpc",
+                "testuser",
+                r"c:\users\testuser",
+                sensitive_registry.casefold(),
+                "uninstall.exe",
+                "abc123",
+                "virustotal.com",
+                '"identity_key": "app:',
+            ):
+                self.assertNotIn(token.casefold(), combined)
+
+            data = json.loads(paths["json"].read_text(encoding="utf-8"))
+            self.assertTrue(data["redacted"])
+            self.assertEqual(data["machine"], "Redacted")
+            self.assertEqual(data["applications"][0]["identity_key"], "")
+
+    def test_redacted_diff_removes_snapshot_paths_and_record_metadata(self):
+        from unittest import mock
+
+        record = {
+            "name": "Private Tool",
+            "install_location": r"C:\Users\TestUser\AppData\Private Tool",
+            "uninstall_registry_key": r"HKLM\SOFTWARE\Private Tool",
+            "uninstall_command": r"C:\Users\TestUser\uninstall.exe",
+            "sha256_hash": "abc123",
+            "virustotal_url": "https://www.virustotal.com/gui/file/abc123",
+        }
+        with mock.patch.dict(
+            "os.environ",
+            {
+                "USERNAME": "TestUser",
+                "USERPROFILE": r"C:\Users\TestUser",
+                "COMPUTERNAME": "TESTPC",
+            },
+        ), tempfile.TemporaryDirectory() as tmp:
+            old_path = Path(tmp) / "old.json"
+            new_path = Path(tmp) / "new.json"
+            old_path.write_text(json.dumps({"machine": "TESTPC", "applications": []}), encoding="utf-8")
+            new_path.write_text(json.dumps({"machine": "TESTPC", "applications": [record]}), encoding="utf-8")
+            diff = diff_json_snapshots(str(old_path), str(new_path), redacted=True)
+
+        self.assertEqual(diff["old_snapshot"]["file"], "<REDACTED_PATH>")
+        self.assertEqual(diff["old_snapshot"]["machine"], "Redacted")
+        added = diff["added"][0]
+        self.assertTrue(added["install_location"].startswith("<REDACTED_PATH>"))
+        self.assertEqual(added["uninstall_command"], "")
+        self.assertEqual(added["sha256_hash"], "")
+        self.assertEqual(added["virustotal_url"], "")
 
     def test_html_export_includes_bloatware_and_measured_size_columns(self):
         apps = [
